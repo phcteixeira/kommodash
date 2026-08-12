@@ -292,38 +292,55 @@ export function buildCustomFieldsSummary(fields: KommoCustomField[]): CustomFiel
   });
 }
 
-// ---------- Contratos (fechamentos por produto) ----------
+// ---------- Contratos (fechamentos: lead x produto x data) ----------
 
-export interface ClosingRow {
+export interface ClosingListRow {
+  leadId: number;
+  leadName: string;
+  productId: number;
+  productName: string;
+  /** Data do vínculo (evento real) ou, na ausência de evento, a criação do lead. */
+  closedAt: number; // unix seconds
+  /** true quando não foi encontrado evento de vínculo e a data é uma aproximação. */
+  isApproximate: boolean;
+}
+
+export interface ClosingsProductSummary {
   productId: number;
   productName: string;
   count: number;
 }
 
 export interface ClosingsReport {
-  /** Um produto por linha, ordenado do mais para o menos vendido no período. */
-  rows: ClosingRow[];
+  /** Um fechamento por linha (lead + produto + data), do mais recente para o mais antigo. */
+  rows: ClosingListRow[];
   totalClosings: number;
   /** Quantos fechamentos usaram a data de criação do lead como aproximação (sem evento de vínculo encontrado). */
   approximateCount: number;
+  /** Ranking por produto, derivado de `rows` — usado nos KPIs (produto mais vendido, produtos distintos). */
+  productSummary: ClosingsProductSummary[];
 }
 
 /**
- * Conta "fechamentos" (produto vinculado a um lead) por produto, dentro de
- * uma janela de tempo. Fonte primária: eventos `entity_linked` (data exata
- * do vínculo). Para leads com produto vinculado mas sem evento correspondente
- * encontrado (dado antigo/importado, fora do alcance do log de eventos),
- * usa a data de criação do lead como aproximação — contabilizado à parte em
- * `approximateCount` para transparência.
+ * Lista "fechamentos" (produto vinculado a um lead) dentro de uma janela de
+ * tempo. Fonte primária: eventos `entity_linked` (data exata do vínculo).
+ * Para leads com produto vinculado mas sem evento correspondente encontrado
+ * (dado antigo/importado, fora do alcance do log de eventos), usa a data de
+ * criação do lead como aproximação — sinalizado em `isApproximate`.
  *
- * Um mesmo par (lead, produto) nunca é contado duas vezes: se há evento,
- * a aproximação por `created_at` é ignorada para aquele par.
+ * Um mesmo par (lead, produto) nunca aparece duas vezes: se há evento, a
+ * aproximação por `created_at` é ignorada para aquele par.
+ *
+ * `leadNameById` deve cobrir tanto os leads de `leads` quanto qualquer lead
+ * referenciado só pelos eventos (ex.: lead antigo, criado fora da janela,
+ * que recebeu um produto novo agora) — ver `dataset.ts#resolveLeadNames`.
  */
-export function buildClosingsByProduct(
+export function buildClosings(
   leads: KommoLead[],
   catalogElements: KommoCatalogElement[],
   events: KommoProductLinkEvent[],
-  window: { from: Date; to: Date }
+  window: { from: Date; to: Date },
+  leadNameById: Map<number, string>
 ): ClosingsReport {
   const productNameById = new Map(catalogElements.map((e) => [e.id, e.name]));
   const validProductIds = new Set(catalogElements.map((e) => e.id));
@@ -331,40 +348,50 @@ export function buildClosingsByProduct(
   const toSec = Math.floor(window.to.getTime() / 1000);
 
   const seen = new Set<string>(); // `${leadId}:${catalogElementId}`
-  const countByProduct = new Map<number, number>();
-  let totalClosings = 0;
+  const rows: ClosingListRow[] = [];
   let approximateCount = 0;
+
+  function addRow(leadId: number, productId: number, closedAt: number, isApproximate: boolean) {
+    if (!validProductIds.has(productId)) return;
+    const key = `${leadId}:${productId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push({
+      leadId,
+      leadName: leadNameById.get(leadId) ?? `Lead ${leadId}`,
+      productId,
+      productName: productNameById.get(productId) ?? `Produto ${productId}`,
+      closedAt,
+      isApproximate,
+    });
+    if (isApproximate) approximateCount += 1;
+  }
 
   for (const event of events) {
     if (event.linkedAt < fromSec || event.linkedAt > toSec) continue;
-    if (!validProductIds.has(event.catalogElementId)) continue;
-    const key = `${event.leadId}:${event.catalogElementId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    countByProduct.set(event.catalogElementId, (countByProduct.get(event.catalogElementId) ?? 0) + 1);
-    totalClosings += 1;
+    addRow(event.leadId, event.catalogElementId, event.linkedAt, false);
   }
 
   for (const lead of leads) {
     if (lead.created_at < fromSec || lead.created_at > toSec) continue;
     for (const productId of lead.catalog_element_ids ?? []) {
-      if (!validProductIds.has(productId)) continue;
-      const key = `${lead.id}:${productId}`;
-      if (seen.has(key)) continue; // já contabilizado via evento real
-      seen.add(key);
-      countByProduct.set(productId, (countByProduct.get(productId) ?? 0) + 1);
-      totalClosings += 1;
-      approximateCount += 1;
+      addRow(lead.id, productId, lead.created_at, true); // ignorado se já veio de um evento real
     }
   }
 
-  const rows = Array.from(countByProduct.entries())
-    .map(([productId, count]) => ({
-      productId,
-      productName: productNameById.get(productId) ?? `Produto ${productId}`,
-      count,
-    }))
-    .sort((a, b) => b.count - a.count);
+  rows.sort((a, b) => b.closedAt - a.closedAt);
 
-  return { rows, totalClosings, approximateCount };
+  const countByProduct = new Map<number, ClosingsProductSummary>();
+  for (const row of rows) {
+    const entry = countByProduct.get(row.productId) ?? {
+      productId: row.productId,
+      productName: row.productName,
+      count: 0,
+    };
+    entry.count += 1;
+    countByProduct.set(row.productId, entry);
+  }
+  const productSummary = Array.from(countByProduct.values()).sort((a, b) => b.count - a.count);
+
+  return { rows, totalClosings: rows.length, approximateCount, productSummary };
 }

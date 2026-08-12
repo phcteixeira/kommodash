@@ -5,13 +5,14 @@ import {
   getCatalogs,
   getCustomFields,
   getLeads,
+  getLeadsByIds,
   getPipelines,
   getProductLinkEvents,
   getTasks,
   getUsers,
 } from "./api";
 import { getMockDataset, getMockProductLinkEvents } from "./mock-data";
-import type { KommoDataset, KommoProductLinkEvent } from "./types";
+import type { KommoDataset, KommoLead, KommoProductLinkEvent } from "./types";
 import { KommoApiError } from "./client";
 
 export interface DatasetResult {
@@ -137,4 +138,30 @@ async function fetchProductLinkEvents(window: { from: Date; to: Date }): Promise
         : "Não foi possível conectar à API da Kommo. Verifique sua conexão e tente novamente.";
     return { events: getMockProductLinkEvents(), isDemo: true, error: message };
   }
+}
+
+/**
+ * Um evento de vínculo pode referenciar um lead criado fora da janela de
+ * datas usada para buscar `leads` (ex.: lead antigo que só agora recebeu um
+ * produto novo). Essa função completa o mapa de nomes buscando, por ID, só
+ * os leads que faltam — em vez de ampliar a busca principal de leads.
+ */
+export async function resolveLeadNames(
+  leads: KommoLead[],
+  events: KommoProductLinkEvent[]
+): Promise<Map<number, string>> {
+  const nameById = new Map(leads.map((l) => [l.id, l.name]));
+  if (!isKommoConfigured()) return nameById; // modo demo: leads já cobrem todos os eventos
+
+  const missing = Array.from(new Set(events.map((e) => e.leadId))).filter((id) => !nameById.has(id));
+  if (missing.length === 0) return nameById;
+
+  try {
+    const extra = await getLeadsByIds(missing);
+    for (const lead of extra) nameById.set(lead.id, lead.name);
+  } catch {
+    // Sem sorte: os leads que faltarem aparecem com o nome de fallback
+    // ("Lead {id}") em buildClosings, em vez de quebrar a página.
+  }
+  return nameById;
 }

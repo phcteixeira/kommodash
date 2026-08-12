@@ -1,7 +1,7 @@
-import { loadKommoDataset, loadProductLinkEvents } from "@/lib/kommo/dataset";
-import { buildClosingsByProduct } from "@/lib/kommo/aggregate";
+import { loadKommoDataset, loadProductLinkEvents, resolveLeadNames } from "@/lib/kommo/dataset";
+import { buildClosings } from "@/lib/kommo/aggregate";
 import { resolveClosingsWindow, toDateInputValue } from "@/lib/date-range";
-import { formatNumber } from "@/lib/format";
+import { formatDate, formatNumber } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ClosingsPeriodFilter } from "@/components/filters/ClosingsPeriodFilter";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -26,8 +26,9 @@ export default async function ContratosPage({
   const isDemo = datasetIsDemo || eventsResult.isDemo;
   const error = datasetError ?? eventsResult.error;
 
-  const report = buildClosingsByProduct(leads, catalogElements, eventsResult.events, window);
-  const topProduct = report.rows[0];
+  const leadNameById = await resolveLeadNames(leads, eventsResult.events);
+  const report = buildClosings(leads, catalogElements, eventsResult.events, window, leadNameById);
+  const topProduct = report.productSummary[0];
 
   return (
     <div>
@@ -47,7 +48,7 @@ export default async function ContratosPage({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Fechamentos no período" value={formatNumber(report.totalClosings)} icon={FileSignature} />
-        <KpiCard label="Produtos distintos" value={formatNumber(report.rows.length)} icon={Package} />
+        <KpiCard label="Produtos distintos" value={formatNumber(report.productSummary.length)} icon={Package} />
         <KpiCard
           label="Produto mais vendido"
           value={topProduct ? topProduct.productName : "—"}
@@ -63,19 +64,29 @@ export default async function ContratosPage({
       </div>
 
       <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-        <h2 className="mb-4 font-medium text-[var(--text-primary)]">Fechamentos por produto</h2>
+        <h2 className="mb-4 font-medium text-[var(--text-primary)]">Fechamentos</h2>
         <Table
-          keyFor={(r) => r.productId}
+          keyFor={(r) => `${r.leadId}:${r.productId}`}
           rows={report.rows}
           columns={[
+            { header: "Nome do Lead", cell: (r) => r.leadName },
             { header: "Produto", cell: (r) => r.productName },
-            { header: "Quantidade de fechamentos", cell: (r) => formatNumber(r.count), align: "right" },
+            {
+              header: "Data da contratação",
+              cell: (r) => (
+                <span>
+                  {formatDate(r.closedAt)}
+                  {r.isApproximate ? <span className="ml-1 text-[var(--muted)]">(aprox.)</span> : null}
+                </span>
+              ),
+              align: "right",
+            },
           ]}
         />
         {report.approximateCount > 0 ? (
           <p className="mt-3 text-xs text-[var(--muted)]">
-            {formatNumber(report.approximateCount)} fechamento(s) sem evento de vínculo registrado na Kommo — a
-            data de criação do lead foi usada como aproximação.
+            (aprox.): sem evento de vínculo registrado na Kommo — a data de criação do lead foi usada como
+            aproximação.
           </p>
         ) : null}
       </div>
