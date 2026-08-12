@@ -31,6 +31,8 @@ interface Props {
   currency?: string;
   /** Quando informado (e houver apenas 1 série), cada barra usa a cor de data[i][colorKey]. */
   colorKey?: string;
+  /** Empilha as séries em vez de agrupá-las lado a lado (útil com muitas séries). */
+  stacked?: boolean;
 }
 
 export function BarComparisonChart({
@@ -42,6 +44,7 @@ export function BarComparisonChart({
   valueFormat,
   currency,
   colorKey,
+  stacked = false,
 }: Props) {
   const perBarColor = colorKey && series.length === 1;
   const isVertical = layout === "vertical"; // barras horizontais (categorias no eixo Y)
@@ -77,7 +80,17 @@ export function BarComparisonChart({
         <Tooltip content={<ChartTooltip valueFormat={valueFormat} currency={currency} />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
         {series.length > 1 ? <Legend wrapperStyle={{ fontSize: 12, color: CHROME.light.textSecondary }} /> : null}
         {series.map((s) => (
-          <Bar key={s.key} dataKey={s.key} name={s.name} fill={s.color} radius={4} maxBarSize={28}>
+          <Bar
+            key={s.key}
+            dataKey={s.key}
+            name={s.name}
+            fill={s.color}
+            radius={stacked ? 0 : 4}
+            maxBarSize={28}
+            stackId={stacked ? "stack" : undefined}
+            stroke={stacked ? CHROME.light.surface : undefined}
+            strokeWidth={stacked ? 2 : undefined}
+          >
             {perBarColor
               ? data.map((row, i) => <Cell key={i} fill={String(row[colorKey as string])} />)
               : null}

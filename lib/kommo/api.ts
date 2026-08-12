@@ -46,6 +46,10 @@ export async function getAccount(): Promise<KommoAccount> {
   };
 }
 
+type RawLead = Omit<KommoLead, "catalog_element_ids"> & {
+  _embedded?: { catalog_elements?: { id: number }[] };
+};
+
 export async function getLeads(filter: LeadFilter = {}): Promise<KommoLead[]> {
   const params = new URLSearchParams();
   if (filter.createdFrom) {
@@ -54,13 +58,15 @@ export async function getLeads(filter: LeadFilter = {}): Promise<KommoLead[]> {
   if (filter.createdTo) {
     params.set("filter[created_at][to]", String(Math.floor(filter.createdTo.getTime() / 1000)));
   }
+  params.set("with", "catalog_elements");
   const query = params.toString();
-  const path = `/leads${query ? `?${query}` : ""}`;
+  const path = `/leads?${query}`;
 
-  const raw = await kommoFetchAllPages<"leads", KommoLead>(path, "leads");
+  const raw = await kommoFetchAllPages<"leads", RawLead>(path, "leads");
   return raw.map((lead) => ({
     ...lead,
     custom_fields_values: lead.custom_fields_values ?? [],
+    catalog_element_ids: (lead._embedded?.catalog_elements ?? []).map((e) => e.id),
   }));
 }
 

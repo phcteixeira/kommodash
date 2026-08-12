@@ -51,6 +51,18 @@ const MOCK_PIPELINES: KommoPipeline[] = [
 ];
 
 const products = ["Plano Starter", "Plano Pro", "Plano Enterprise", "Consultoria", "Add-on Suporte"];
+const PRODUCT_IDS = products.map((_, i) => 7000 + i);
+
+function pickCatalogElementIds(): number[] {
+  const roll = rand();
+  if (roll < 0.08) return []; // lead sem produto vinculado
+  if (roll < 0.94) return [pick(PRODUCT_IDS)]; // um produto (caso mais comum)
+  // dois produtos distintos
+  const first = pick(PRODUCT_IDS);
+  let second = pick(PRODUCT_IDS);
+  while (second === first) second = pick(PRODUCT_IDS);
+  return [first, second];
+}
 
 function buildLeads(): KommoLead[] {
   const leads: KommoLead[] = [];
@@ -71,6 +83,7 @@ function buildLeads(): KommoLead[] {
       closed_at: isClosed ? created + Math.floor(rand() * 20) * 86400 : null,
       closest_task_at: null,
       custom_fields_values: [],
+      catalog_element_ids: pickCatalogElementIds(),
     });
   }
   return leads;
@@ -122,7 +135,7 @@ const MOCK_CATALOGS: KommoCatalog[] = [
 ];
 
 const MOCK_CATALOG_ELEMENTS: KommoCatalogElement[] = products.map((name, i) => ({
-  id: 7000 + i,
+  id: PRODUCT_IDS[i],
   name,
   catalog_id: 1,
   custom_fields_values: [],

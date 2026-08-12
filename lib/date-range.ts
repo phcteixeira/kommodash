@@ -1,3 +1,5 @@
+import type { TimeGranularity } from "./kommo/aggregate";
+
 export const RANGE_PRESETS = {
   "7d": { label: "Últimos 7 dias", days: 7 },
   "30d": { label: "Últimos 30 dias", days: 30 },
@@ -21,4 +23,11 @@ export function resolveRange(rangeParam: string | undefined): { key: RangeKey; f
   const from = new Date();
   from.setDate(from.getDate() - preset.days);
   return { key, from };
+}
+
+const GRANULARITIES: TimeGranularity[] = ["day", "week", "month"];
+export const DEFAULT_GRANULARITY: TimeGranularity = "week";
+
+export function resolveGranularity(param: string | undefined): TimeGranularity {
+  return GRANULARITIES.includes(param as TimeGranularity) ? (param as TimeGranularity) : DEFAULT_GRANULARITY;
 }

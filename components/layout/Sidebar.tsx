@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   BarChart3,
+  FileSignature,
   Filter,
   LayoutDashboard,
   ListChecks,
@@ -15,6 +16,7 @@ const links = [
   { href: "/dashboard/vendedores", label: "Vendedores", icon: Users },
   { href: "/dashboard/faturamento", label: "Faturamento", icon: Wallet },
   { href: "/dashboard/atividades", label: "Atividades", icon: ListChecks },
+  { href: "/dashboard/contratos", label: "Contratos", icon: FileSignature },
   { href: "/dashboard/produtos", label: "Produtos e campos", icon: Package },
 ];
 

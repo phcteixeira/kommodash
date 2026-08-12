@@ -22,6 +22,8 @@ export interface KommoLead {
   closest_task_at: number | null;
   is_deleted?: boolean;
   custom_fields_values: KommoCustomFieldValue[] | null;
+  /** IDs dos elementos de catálogo (produtos) vinculados ao lead. */
+  catalog_element_ids: number[];
 }
 
 export type PipelineStatusType = "regular" | "won" | "lost";
