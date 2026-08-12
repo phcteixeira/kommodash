@@ -9,13 +9,23 @@ export class KommoApiError extends Error {
   }
 }
 
-const MIN_REQUEST_GAP_MS = 150; // fica bem abaixo do limite de ~7 req/s da Kommo
+const MIN_REQUEST_GAP_MS = 250; // ~4 req/s, com folga sob o limite de ~7 req/s da Kommo
 let lastRequestAt = 0;
 
-async function throttle() {
-  const wait = lastRequestAt + MIN_REQUEST_GAP_MS - Date.now();
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastRequestAt = Date.now();
+// Fila real (não apenas "check-then-set"): cada chamada só calcula sua espera
+// depois que a anterior terminou de esperar, então chamadas concorrentes (várias
+// páginas/entidades em paralelo) não conseguem "furar" o intervalo mínimo.
+let throttleQueue: Promise<void> = Promise.resolve();
+
+function throttle(): Promise<void> {
+  const next = throttleQueue.then(async () => {
+    const wait = lastRequestAt + MIN_REQUEST_GAP_MS - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    lastRequestAt = Date.now();
+  });
+  // Mantém a fila viva mesmo se algo der errado no meio.
+  throttleQueue = next.catch(() => {});
+  return next;
 }
 
 /**
@@ -25,7 +35,7 @@ async function throttle() {
 export async function kommoFetch<T>(
   path: string,
   init?: RequestInit,
-  { retries = 3 }: { retries?: number } = {}
+  { retries = 5 }: { retries?: number } = {}
 ): Promise<T> {
   if (!isKommoConfigured()) {
     throw new KommoApiError(
@@ -53,7 +63,7 @@ export async function kommoFetch<T>(
       const retryAfter = Number(res.headers.get("retry-after"));
       const delay = Number.isFinite(retryAfter) && retryAfter > 0
         ? retryAfter * 1000
-        : 500 * 2 ** attempt;
+        : Math.min(1000 * 2 ** attempt, 8000);
       await new Promise((r) => setTimeout(r, delay));
       continue;
     }
