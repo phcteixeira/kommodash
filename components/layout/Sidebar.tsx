@@ -1,4 +1,5 @@
-import Link from "next/link";
+"use client";
+
 import {
   BarChart3,
   FileSignature,
@@ -9,6 +10,7 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
+import { NavLink } from "./NavLink";
 
 const links = [
   { href: "/dashboard", label: "Visão geral", icon: LayoutDashboard },
@@ -28,15 +30,8 @@ export function Sidebar() {
         <span className="font-semibold">Kommodash</span>
       </div>
       <nav className="flex flex-col gap-1 px-3">
-        {links.map(({ href, label, icon: Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-black/5 hover:text-[var(--text-primary)]"
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </Link>
+        {links.map((link) => (
+          <NavLink key={link.href} {...link} />
         ))}
       </nav>
     </aside>

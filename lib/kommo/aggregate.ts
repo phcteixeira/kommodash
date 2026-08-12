@@ -291,50 +291,30 @@ export function buildCustomFieldsSummary(fields: KommoCustomField[]): CustomFiel
   });
 }
 
-// ---------- Contratos (leads por produto ao longo do tempo) ----------
+// ---------- Contratos (leads por produto) ----------
 
-const OTHERS_PRODUCT_KEY = "outros";
-const MAX_PRODUCT_SERIES = 8; // segue o limite de 8 slots da paleta categórica
-
-export interface ProductLeadsSeriesDef {
-  /** Chave segura para usar como dataKey no gráfico (ex.: "p_7001"). */
-  key: string;
-  name: string;
-  total: number;
+export interface ProductRankingRow {
+  productId: number;
+  productName: string;
+  totalLeads: number;
 }
 
-export interface ProductLeadsPoint {
-  periodKey: string;
-  periodLabel: string;
-  [seriesKey: string]: string | number;
-}
-
-export interface ProductLeadsReport {
-  /** Um ponto por período (dia/semana/mês), com uma contagem por produto (top N + "Outros"). */
-  points: ProductLeadsPoint[];
-  /** Séries usadas no gráfico (mesma ordem/cores a aplicar), já limitadas ao topo. */
-  series: ProductLeadsSeriesDef[];
-  /** Ranking completo de produtos (sem limite), para tabela/detalhamento. */
-  ranking: { productId: number; productName: string; totalLeads: number }[];
+export interface ProductRankingReport {
+  /** Um produto por linha, ordenado do mais para o menos associado a leads. */
+  ranking: ProductRankingRow[];
   totalLeadsWithProduct: number;
   totalLeadsWithoutProduct: number;
 }
 
-function seriesKeyFor(productId: number | typeof OTHERS_PRODUCT_KEY): string {
-  return productId === OTHERS_PRODUCT_KEY ? OTHERS_PRODUCT_KEY : `p_${productId}`;
-}
-
 /**
  * Agrupa leads pelos produtos (elementos de catálogo) vinculados a eles,
- * contando quantos leads cada produto tem em cada período. Um lead com N
- * produtos conta uma vez para cada um deles. Os produtos com menor volume
- * além do limite de séries são agrupados em "Outros".
+ * contando quantos leads cada produto tem. Um lead com N produtos conta
+ * uma vez para cada um deles.
  */
-export function buildProductLeadsReport(
+export function buildProductRanking(
   leads: KommoLead[],
-  catalogElements: KommoCatalogElement[],
-  granularity: TimeGranularity = "week"
-): ProductLeadsReport {
+  catalogElements: KommoCatalogElement[]
+): ProductRankingReport {
   const productNameById = new Map(catalogElements.map((e) => [e.id, e.name]));
 
   const totalByProduct = new Map<number, number>();
@@ -361,40 +341,5 @@ export function buildProductLeadsReport(
     }))
     .sort((a, b) => b.totalLeads - a.totalLeads);
 
-  const topProductIds = new Set(ranking.slice(0, MAX_PRODUCT_SERIES).map((r) => r.productId));
-  const hasOthers = ranking.length > MAX_PRODUCT_SERIES;
-
-  const series: ProductLeadsSeriesDef[] = ranking.slice(0, MAX_PRODUCT_SERIES).map((r) => ({
-    key: seriesKeyFor(r.productId),
-    name: r.productName,
-    total: r.totalLeads,
-  }));
-  if (hasOthers) {
-    const othersTotal = ranking.slice(MAX_PRODUCT_SERIES).reduce((s, r) => s + r.totalLeads, 0);
-    series.push({ key: seriesKeyFor(OTHERS_PRODUCT_KEY), name: "Outros produtos", total: othersTotal });
-  }
-
-  const labelFmt = periodLabelFormat(granularity);
-  const buckets = new Map<string, ProductLeadsPoint>();
-
-  for (const lead of leads) {
-    const ids = lead.catalog_element_ids ?? [];
-    if (ids.length === 0) continue;
-
-    const bucketDate = bucketStart(new Date(lead.created_at * 1000), granularity);
-    const key = bucketDate.toISOString();
-    const point =
-      buckets.get(key) ?? ({ periodKey: key, periodLabel: format(bucketDate, labelFmt) } as ProductLeadsPoint);
-
-    for (const id of ids) {
-      const seriesKey = seriesKeyFor(topProductIds.has(id) ? id : OTHERS_PRODUCT_KEY);
-      point[seriesKey] = (Number(point[seriesKey]) || 0) + 1;
-    }
-
-    buckets.set(key, point);
-  }
-
-  const points = Array.from(buckets.values()).sort((a, b) => a.periodKey.localeCompare(b.periodKey));
-
-  return { points, series, ranking, totalLeadsWithProduct, totalLeadsWithoutProduct };
+  return { ranking, totalLeadsWithProduct, totalLeadsWithoutProduct };
 }

@@ -1,50 +1,41 @@
 import { loadKommoDataset } from "@/lib/kommo/dataset";
-import { buildProductLeadsReport } from "@/lib/kommo/aggregate";
-import { resolveRange, resolveGranularity } from "@/lib/date-range";
+import { buildProductRanking, bucketStart } from "@/lib/kommo/aggregate";
+import { resolveGranularity } from "@/lib/date-range";
 import { formatNumber } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { DateRangeFilter } from "@/components/filters/DateRangeFilter";
 import { GranularityFilter } from "@/components/filters/GranularityFilter";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { KpiCard } from "@/components/ui/KpiCard";
-import { BarComparisonChart } from "@/components/charts/BarComparisonChart";
 import { Table } from "@/components/ui/Table";
-import { CATEGORICAL, CHROME } from "@/lib/palette";
 import { FileSignature, Package, TrendingUp, HelpCircle } from "lucide-react";
+
+const PERIOD_LABEL: Record<string, string> = {
+  day: "hoje",
+  week: "esta semana",
+  month: "este mês",
+};
 
 export default async function ContratosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; granularity?: string }>;
+  searchParams: Promise<{ granularity?: string }>;
 }) {
-  const { range, granularity: granularityParam } = await searchParams;
-  const { key: rangeKey, from } = resolveRange(range);
+  const { granularity: granularityParam } = await searchParams;
   const granularity = resolveGranularity(granularityParam);
+  const from = bucketStart(new Date(), granularity);
+
   const { dataset, isDemo, error } = await loadKommoDataset({ createdFrom: from });
   const { leads, catalogElements } = dataset;
 
-  const report = buildProductLeadsReport(leads, catalogElements, granularity);
-
-  const seriesColors = [...CATEGORICAL, CHROME.light.muted]; // último slot reservado para "Outros"
-  const chartSeries = report.series.map((s, i) => ({
-    key: s.key,
-    name: s.name,
-    color: s.key === "outros" ? CHROME.light.muted : seriesColors[i % CATEGORICAL.length],
-  }));
-
+  const report = buildProductRanking(leads, catalogElements);
   const topProduct = report.ranking[0];
 
   return (
     <div>
       <PageHeader
         title="Contratos"
-        description="Quantidade de leads associados a cada produto, agrupados por período."
-        filters={
-          <>
-            <GranularityFilter current={granularity} />
-            <DateRangeFilter current={rangeKey} />
-          </>
-        }
+        description={`Quantidade de leads associados a cada produto, considerando os criados ${PERIOD_LABEL[granularity]}.`}
+        filters={<GranularityFilter current={granularity} />}
       />
 
       {isDemo ? <div className="mb-6"><EmptyState variant={error ? "error" : "not-configured"} message={error} /></div> : null}
@@ -62,33 +53,13 @@ export default async function ContratosPage({
       </div>
 
       <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-        <h2 className="mb-1 font-medium text-[var(--text-primary)]">Leads por produto ao longo do tempo</h2>
-        <p className="mb-4 text-sm text-[var(--text-secondary)]">
-          Cada barra é um {granularity === "day" ? "dia" : granularity === "week" ? "semana" : "mês"}; as cores mostram
-          a contribuição de cada produto.
-        </p>
-        {report.points.length > 0 ? (
-          <BarComparisonChart
-            data={report.points}
-            categoryKey="periodLabel"
-            series={chartSeries}
-            layout="horizontal"
-            stacked
-            height={360}
-          />
-        ) : (
-          <p className="text-sm text-[var(--muted)]">Nenhum lead com produto vinculado no período selecionado.</p>
-        )}
-      </div>
-
-      <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-        <h2 className="mb-4 font-medium text-[var(--text-primary)]">Ranking por produto</h2>
+        <h2 className="mb-4 font-medium text-[var(--text-primary)]">Leads por produto</h2>
         <Table
           keyFor={(r) => r.productId}
           rows={report.ranking}
           columns={[
             { header: "Produto", cell: (r) => r.productName },
-            { header: "Leads associados", cell: (r) => formatNumber(r.totalLeads), align: "right" },
+            { header: "Quantidade de leads", cell: (r) => formatNumber(r.totalLeads), align: "right" },
           ]}
         />
       </div>
