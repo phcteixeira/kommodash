@@ -7,6 +7,7 @@ import type {
   KommoLead,
   KommoPipeline,
   KommoPipelineStatus,
+  KommoProductLinkEvent,
   KommoTask,
   KommoUser,
 } from "./types";
@@ -135,4 +136,51 @@ export async function getCatalogElements(catalogId: number): Promise<KommoCatalo
     "elements"
   );
   return raw.map((e) => ({ ...e, catalog_id: catalogId }));
+}
+
+export interface EventDateFilter {
+  from?: Date;
+  to?: Date;
+}
+
+interface RawEvent {
+  id: string;
+  entity_id: number;
+  created_at: number;
+  value_after?: { link?: { entity?: { type: unknown; id: number } } }[];
+}
+
+/**
+ * Busca eventos `entity_linked` de leads (vínculo com produto, contato ou
+ * empresa) e retorna apenas os que representam um produto sendo vinculado
+ * a um lead ("fechamento").
+ *
+ * A API da Kommo não expõe um tipo de evento dedicado a "produto vinculado":
+ * vínculos de contato/empresa trazem `link.entity.type` como texto (ex.:
+ * "contact"), enquanto vínculos de produto trazem `type: false` — uma
+ * peculiaridade não documentada, confirmada manualmente contra uma conta
+ * real. Por isso `aggregate.ts` ainda cruza o resultado com a lista de
+ * elementos de catálogo conhecidos antes de contabilizar.
+ */
+export async function getProductLinkEvents(filter: EventDateFilter = {}): Promise<KommoProductLinkEvent[]> {
+  const params = new URLSearchParams();
+  params.set("filter[type][]", "entity_linked");
+  params.set("filter[entity]", "leads");
+  if (filter.from) {
+    params.set("filter[created_at][from]", String(Math.floor(filter.from.getTime() / 1000)));
+  }
+  if (filter.to) {
+    params.set("filter[created_at][to]", String(Math.floor(filter.to.getTime() / 1000)));
+  }
+  const path = `/events?${params.toString()}`;
+
+  const raw = await kommoFetchAllPages<"events", RawEvent>(path, "events");
+
+  const events: KommoProductLinkEvent[] = [];
+  for (const event of raw) {
+    const link = event.value_after?.[0]?.link?.entity;
+    if (!link || link.type !== false) continue;
+    events.push({ leadId: event.entity_id, catalogElementId: link.id, linkedAt: event.created_at });
+  }
+  return events;
 }

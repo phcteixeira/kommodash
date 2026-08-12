@@ -1,67 +1,83 @@
-import { loadKommoDataset } from "@/lib/kommo/dataset";
-import { buildProductRanking, bucketStart } from "@/lib/kommo/aggregate";
-import { resolveGranularity } from "@/lib/date-range";
+import { loadKommoDataset, loadProductLinkEvents } from "@/lib/kommo/dataset";
+import { buildClosingsByProduct } from "@/lib/kommo/aggregate";
+import { resolveClosingsWindow, toDateInputValue } from "@/lib/date-range";
 import { formatNumber } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { GranularityFilter } from "@/components/filters/GranularityFilter";
+import { ClosingsPeriodFilter } from "@/components/filters/ClosingsPeriodFilter";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { Table } from "@/components/ui/Table";
-import { FileSignature, Package, TrendingUp, HelpCircle } from "lucide-react";
-
-const PERIOD_LABEL: Record<string, string> = {
-  day: "hoje",
-  week: "esta semana",
-  month: "este mês",
-};
+import { FileSignature, Package, TrendingUp, Clock3 } from "lucide-react";
 
 export default async function ContratosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ granularity?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
-  const { granularity: granularityParam } = await searchParams;
-  const granularity = resolveGranularity(granularityParam);
-  const from = bucketStart(new Date(), granularity);
+  const { period, from: fromParam, to: toParam } = await searchParams;
+  const window = resolveClosingsWindow({ period, from: fromParam, to: toParam });
 
-  const { dataset, isDemo, error } = await loadKommoDataset({ createdFrom: from });
+  const [{ dataset, isDemo: datasetIsDemo, error: datasetError }, eventsResult] = await Promise.all([
+    loadKommoDataset({ createdFrom: window.from, createdTo: window.to }),
+    loadProductLinkEvents({ from: window.from, to: window.to }),
+  ]);
   const { leads, catalogElements } = dataset;
 
-  const report = buildProductRanking(leads, catalogElements);
-  const topProduct = report.ranking[0];
+  const isDemo = datasetIsDemo || eventsResult.isDemo;
+  const error = datasetError ?? eventsResult.error;
+
+  const report = buildClosingsByProduct(leads, catalogElements, eventsResult.events, window);
+  const topProduct = report.rows[0];
 
   return (
     <div>
       <PageHeader
         title="Contratos"
-        description={`Quantidade de leads associados a cada produto, considerando os criados ${PERIOD_LABEL[granularity]}.`}
-        filters={<GranularityFilter current={granularity} />}
+        description="Produtos vinculados a leads ('fechamentos') no período selecionado, pela data em que o vínculo aconteceu."
+        filters={
+          <ClosingsPeriodFilter
+            current={window.key}
+            from={toDateInputValue(window.from)}
+            to={toDateInputValue(window.to)}
+          />
+        }
       />
 
       {isDemo ? <div className="mb-6"><EmptyState variant={error ? "error" : "not-configured"} message={error} /></div> : null}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Leads com produto vinculado" value={formatNumber(report.totalLeadsWithProduct)} icon={FileSignature} />
-        <KpiCard label="Produtos distintos" value={formatNumber(report.ranking.length)} icon={Package} />
+        <KpiCard label="Fechamentos no período" value={formatNumber(report.totalClosings)} icon={FileSignature} />
+        <KpiCard label="Produtos distintos" value={formatNumber(report.rows.length)} icon={Package} />
         <KpiCard
-          label="Produto mais associado"
+          label="Produto mais vendido"
           value={topProduct ? topProduct.productName : "—"}
           icon={TrendingUp}
-          hint={topProduct ? `${formatNumber(topProduct.totalLeads)} leads` : undefined}
+          hint={topProduct ? `${formatNumber(topProduct.count)} fechamentos` : undefined}
         />
-        <KpiCard label="Leads sem produto" value={formatNumber(report.totalLeadsWithoutProduct)} icon={HelpCircle} />
+        <KpiCard
+          label="Datas aproximadas"
+          value={formatNumber(report.approximateCount)}
+          icon={Clock3}
+          hint="Sem evento de vínculo — usamos a data de criação do lead"
+        />
       </div>
 
       <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-        <h2 className="mb-4 font-medium text-[var(--text-primary)]">Leads por produto</h2>
+        <h2 className="mb-4 font-medium text-[var(--text-primary)]">Fechamentos por produto</h2>
         <Table
           keyFor={(r) => r.productId}
-          rows={report.ranking}
+          rows={report.rows}
           columns={[
             { header: "Produto", cell: (r) => r.productName },
-            { header: "Quantidade de leads", cell: (r) => formatNumber(r.totalLeads), align: "right" },
+            { header: "Quantidade de fechamentos", cell: (r) => formatNumber(r.count), align: "right" },
           ]}
         />
+        {report.approximateCount > 0 ? (
+          <p className="mt-3 text-xs text-[var(--muted)]">
+            {formatNumber(report.approximateCount)} fechamento(s) sem evento de vínculo registrado na Kommo — a
+            data de criação do lead foi usada como aproximação.
+          </p>
+        ) : null}
       </div>
     </div>
   );

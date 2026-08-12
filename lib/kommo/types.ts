@@ -105,6 +105,16 @@ export interface KommoAccount {
   currency: string;
 }
 
+/**
+ * Um "fechamento": um produto (elemento de catálogo) vinculado a um lead,
+ * derivado do evento `entity_linked` da API de eventos da Kommo.
+ */
+export interface KommoProductLinkEvent {
+  leadId: number;
+  catalogElementId: number;
+  linkedAt: number; // unix seconds — data em que o produto foi vinculado ao lead
+}
+
 /** Payload agregado usado pelas páginas do dashboard. */
 export interface KommoDataset {
   account: KommoAccount | null;

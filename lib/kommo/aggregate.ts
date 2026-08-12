@@ -6,6 +6,7 @@ import type {
   KommoLead,
   KommoPipeline,
   KommoPipelineStatus,
+  KommoProductLinkEvent,
   KommoTask,
   KommoUser,
   PipelineStatusType,
@@ -291,55 +292,79 @@ export function buildCustomFieldsSummary(fields: KommoCustomField[]): CustomFiel
   });
 }
 
-// ---------- Contratos (leads por produto) ----------
+// ---------- Contratos (fechamentos por produto) ----------
 
-export interface ProductRankingRow {
+export interface ClosingRow {
   productId: number;
   productName: string;
-  totalLeads: number;
+  count: number;
 }
 
-export interface ProductRankingReport {
-  /** Um produto por linha, ordenado do mais para o menos associado a leads. */
-  ranking: ProductRankingRow[];
-  totalLeadsWithProduct: number;
-  totalLeadsWithoutProduct: number;
+export interface ClosingsReport {
+  /** Um produto por linha, ordenado do mais para o menos vendido no período. */
+  rows: ClosingRow[];
+  totalClosings: number;
+  /** Quantos fechamentos usaram a data de criação do lead como aproximação (sem evento de vínculo encontrado). */
+  approximateCount: number;
 }
 
 /**
- * Agrupa leads pelos produtos (elementos de catálogo) vinculados a eles,
- * contando quantos leads cada produto tem. Um lead com N produtos conta
- * uma vez para cada um deles.
+ * Conta "fechamentos" (produto vinculado a um lead) por produto, dentro de
+ * uma janela de tempo. Fonte primária: eventos `entity_linked` (data exata
+ * do vínculo). Para leads com produto vinculado mas sem evento correspondente
+ * encontrado (dado antigo/importado, fora do alcance do log de eventos),
+ * usa a data de criação do lead como aproximação — contabilizado à parte em
+ * `approximateCount` para transparência.
+ *
+ * Um mesmo par (lead, produto) nunca é contado duas vezes: se há evento,
+ * a aproximação por `created_at` é ignorada para aquele par.
  */
-export function buildProductRanking(
+export function buildClosingsByProduct(
   leads: KommoLead[],
-  catalogElements: KommoCatalogElement[]
-): ProductRankingReport {
+  catalogElements: KommoCatalogElement[],
+  events: KommoProductLinkEvent[],
+  window: { from: Date; to: Date }
+): ClosingsReport {
   const productNameById = new Map(catalogElements.map((e) => [e.id, e.name]));
+  const validProductIds = new Set(catalogElements.map((e) => e.id));
+  const fromSec = Math.floor(window.from.getTime() / 1000);
+  const toSec = Math.floor(window.to.getTime() / 1000);
 
-  const totalByProduct = new Map<number, number>();
-  let totalLeadsWithProduct = 0;
-  let totalLeadsWithoutProduct = 0;
+  const seen = new Set<string>(); // `${leadId}:${catalogElementId}`
+  const countByProduct = new Map<number, number>();
+  let totalClosings = 0;
+  let approximateCount = 0;
+
+  for (const event of events) {
+    if (event.linkedAt < fromSec || event.linkedAt > toSec) continue;
+    if (!validProductIds.has(event.catalogElementId)) continue;
+    const key = `${event.leadId}:${event.catalogElementId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    countByProduct.set(event.catalogElementId, (countByProduct.get(event.catalogElementId) ?? 0) + 1);
+    totalClosings += 1;
+  }
 
   for (const lead of leads) {
-    const ids = lead.catalog_element_ids ?? [];
-    if (ids.length === 0) {
-      totalLeadsWithoutProduct += 1;
-      continue;
-    }
-    totalLeadsWithProduct += 1;
-    for (const id of ids) {
-      totalByProduct.set(id, (totalByProduct.get(id) ?? 0) + 1);
+    if (lead.created_at < fromSec || lead.created_at > toSec) continue;
+    for (const productId of lead.catalog_element_ids ?? []) {
+      if (!validProductIds.has(productId)) continue;
+      const key = `${lead.id}:${productId}`;
+      if (seen.has(key)) continue; // já contabilizado via evento real
+      seen.add(key);
+      countByProduct.set(productId, (countByProduct.get(productId) ?? 0) + 1);
+      totalClosings += 1;
+      approximateCount += 1;
     }
   }
 
-  const ranking = Array.from(totalByProduct.entries())
-    .map(([productId, totalLeads]) => ({
+  const rows = Array.from(countByProduct.entries())
+    .map(([productId, count]) => ({
       productId,
       productName: productNameById.get(productId) ?? `Produto ${productId}`,
-      totalLeads,
+      count,
     }))
-    .sort((a, b) => b.totalLeads - a.totalLeads);
+    .sort((a, b) => b.count - a.count);
 
-  return { ranking, totalLeadsWithProduct, totalLeadsWithoutProduct };
+  return { rows, totalClosings, approximateCount };
 }

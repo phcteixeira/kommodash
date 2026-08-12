@@ -6,6 +6,7 @@ import type {
   KommoDataset,
   KommoLead,
   KommoPipeline,
+  KommoProductLinkEvent,
   KommoTask,
   KommoUser,
 } from "./types";
@@ -113,6 +114,29 @@ function buildTasks(): KommoTask[] {
   return tasks;
 }
 
+/**
+ * Simula eventos de vínculo lead↔produto ("fechamentos"). ~25% dos vínculos
+ * ficam sem evento de propósito, para exercitar o fallback pela data de
+ * criação do lead (mesmo caminho usado quando a Kommo não tem o evento).
+ */
+function buildProductLinkEvents(leads: KommoLead[]): KommoProductLinkEvent[] {
+  const now = Math.floor(Date.now() / 1000);
+  const events: KommoProductLinkEvent[] = [];
+  for (const lead of leads) {
+    for (const productId of lead.catalog_element_ids) {
+      if (rand() < 0.25) continue; // sem evento de propósito
+      const daysSinceCreated = Math.max(0, Math.floor((now - lead.created_at) / 86400));
+      const offsetDays = Math.floor(rand() * Math.min(4, daysSinceCreated + 1));
+      events.push({
+        leadId: lead.id,
+        catalogElementId: productId,
+        linkedAt: lead.created_at + offsetDays * 86400,
+      });
+    }
+  }
+  return events;
+}
+
 const MOCK_CUSTOM_FIELDS: KommoCustomField[] = [
   { id: 1, name: "Origem do lead", code: "SOURCE", type: "select", entity_type: "leads", enums: [
     { id: 1, value: "Site", sort: 1 },
@@ -148,15 +172,28 @@ const MOCK_ACCOUNT: KommoAccount = {
   currency: "BRL",
 };
 
+// Gerados uma única vez, na ordem abaixo, e reutilizados em toda chamada —
+// o PRNG é compartilhado e mutável, então recriar essas listas a cada
+// chamada faria os dados "andarem" a cada navegação e, pior, faria os
+// eventos de vínculo (que dependem dos mesmos leads) ficarem inconsistentes
+// entre `getMockDataset()` e `getMockProductLinkEvents()`.
+const MOCK_LEADS = buildLeads();
+const MOCK_TASKS = buildTasks();
+const MOCK_PRODUCT_LINK_EVENTS = buildProductLinkEvents(MOCK_LEADS);
+
 export function getMockDataset(): KommoDataset {
   return {
     account: MOCK_ACCOUNT,
-    leads: buildLeads(),
+    leads: MOCK_LEADS,
     pipelines: MOCK_PIPELINES,
     users: MOCK_USERS,
-    tasks: buildTasks(),
+    tasks: MOCK_TASKS,
     customFields: MOCK_CUSTOM_FIELDS,
     catalogs: MOCK_CATALOGS,
     catalogElements: MOCK_CATALOG_ELEMENTS,
   };
+}
+
+export function getMockProductLinkEvents(): KommoProductLinkEvent[] {
+  return MOCK_PRODUCT_LINK_EVENTS;
 }
