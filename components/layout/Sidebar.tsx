@@ -9,6 +9,7 @@ import {
   Package,
   Users,
   Wallet,
+  XCircle,
 } from "lucide-react";
 import { NavLink } from "./NavLink";
 
@@ -19,6 +20,7 @@ const links = [
   { href: "/dashboard/faturamento", label: "Faturamento", icon: Wallet },
   { href: "/dashboard/atividades", label: "Atividades", icon: ListChecks },
   { href: "/dashboard/contratos", label: "Contratos", icon: FileSignature },
+  { href: "/dashboard/perdas", label: "Perdas", icon: XCircle },
   { href: "/dashboard/produtos", label: "Produtos e campos", icon: Package },
 ];
 

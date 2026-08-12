@@ -6,13 +6,14 @@ import {
   getCustomFields,
   getLeads,
   getLeadsByIds,
+  getLossReasons,
   getPipelines,
   getProductLinkEvents,
   getTasks,
   getUsers,
 } from "./api";
-import { getMockDataset, getMockProductLinkEvents } from "./mock-data";
-import type { KommoDataset, KommoLead, KommoProductLinkEvent } from "./types";
+import { getMockDataset, getMockLossReasons, getMockProductLinkEvents } from "./mock-data";
+import type { KommoDataset, KommoLead, KommoLossReason, KommoProductLinkEvent } from "./types";
 import { KommoApiError } from "./client";
 
 export interface DatasetResult {
@@ -32,8 +33,15 @@ function dateKey(date: Date | undefined): string {
   return date ? date.toISOString().slice(0, 10) : "-";
 }
 
-function cacheKey(opts: { createdFrom?: Date; createdTo?: Date }): string {
-  return `${dateKey(opts.createdFrom)}_${dateKey(opts.createdTo)}`;
+interface DatasetOpts {
+  createdFrom?: Date;
+  createdTo?: Date;
+  closedFrom?: Date;
+  closedTo?: Date;
+}
+
+function cacheKey(opts: DatasetOpts): string {
+  return `${dateKey(opts.createdFrom)}_${dateKey(opts.createdTo)}_${dateKey(opts.closedFrom)}_${dateKey(opts.closedTo)}`;
 }
 
 /**
@@ -41,7 +49,7 @@ function cacheKey(opts: { createdFrom?: Date; createdTo?: Date }): string {
  * - Sem KOMMO_SUBDOMAIN/KOMMO_ACCESS_TOKEN configurados: retorna dados de demonstração.
  * - Configurado mas com erro na API (token inválido, rede etc.): retorna erro para a página tratar.
  */
-export function loadKommoDataset(opts: { createdFrom?: Date; createdTo?: Date } = {}): Promise<DatasetResult> {
+export function loadKommoDataset(opts: DatasetOpts = {}): Promise<DatasetResult> {
   if (!isKommoConfigured()) {
     return Promise.resolve({ dataset: getMockDataset(), isDemo: true, error: null });
   }
@@ -57,7 +65,7 @@ export function loadKommoDataset(opts: { createdFrom?: Date; createdTo?: Date } 
   return promise;
 }
 
-async function fetchDataset(opts: { createdFrom?: Date; createdTo?: Date }): Promise<DatasetResult> {
+async function fetchDataset(opts: DatasetOpts): Promise<DatasetResult> {
   try {
     // Sequencial (não Promise.all): evita disparar ~10 streams de requisição em
     // paralelo contra o rate limit (~7 req/s) da Kommo. O throttle interno do
@@ -65,7 +73,12 @@ async function fetchDataset(opts: { createdFrom?: Date; createdTo?: Date }): Pro
     const account = await getAccount();
     const pipelines = await getPipelines();
     const users = await getUsers();
-    const leads = await getLeads({ createdFrom: opts.createdFrom, createdTo: opts.createdTo });
+    const leads = await getLeads({
+      createdFrom: opts.createdFrom,
+      createdTo: opts.createdTo,
+      closedFrom: opts.closedFrom,
+      closedTo: opts.closedTo,
+    });
     const tasks = await getTasks({ updatedFrom: opts.createdFrom });
     const leadFields = await getCustomFields("leads");
     const contactFields = await getCustomFields("contacts");
@@ -164,4 +177,40 @@ export async function resolveLeadNames(
     // ("Lead {id}") em buildClosings, em vez de quebrar a página.
   }
   return nameById;
+}
+
+export interface LossReasonsResult {
+  lossReasons: KommoLossReason[];
+  isDemo: boolean;
+  error: string | null;
+}
+
+// Motivos de perda mudam raramente — cache único (sem variação por filtro).
+let lossReasonsCache: { promise: Promise<LossReasonsResult>; expiresAt: number } | null = null;
+
+export function loadLossReasons(): Promise<LossReasonsResult> {
+  if (!isKommoConfigured()) {
+    return Promise.resolve({ lossReasons: getMockLossReasons(), isDemo: true, error: null });
+  }
+
+  if (lossReasonsCache && lossReasonsCache.expiresAt > Date.now()) {
+    return lossReasonsCache.promise;
+  }
+
+  const promise = fetchLossReasons();
+  lossReasonsCache = { promise, expiresAt: Date.now() + CACHE_TTL_MS };
+  return promise;
+}
+
+async function fetchLossReasons(): Promise<LossReasonsResult> {
+  try {
+    const lossReasons = await getLossReasons();
+    return { lossReasons, isDemo: false, error: null };
+  } catch (err) {
+    const message =
+      err instanceof KommoApiError
+        ? err.message
+        : "Não foi possível conectar à API da Kommo. Verifique sua conexão e tente novamente.";
+    return { lossReasons: getMockLossReasons(), isDemo: true, error: message };
+  }
 }

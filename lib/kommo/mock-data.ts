@@ -5,6 +5,7 @@ import type {
   KommoCustomField,
   KommoDataset,
   KommoLead,
+  KommoLossReason,
   KommoPipeline,
   KommoProductLinkEvent,
   KommoTask,
@@ -54,6 +55,15 @@ const MOCK_PIPELINES: KommoPipeline[] = [
 const products = ["Plano Starter", "Plano Pro", "Plano Enterprise", "Consultoria", "Add-on Suporte"];
 const PRODUCT_IDS = products.map((_, i) => 7000 + i);
 
+const lossReasonNames = ["Sem orçamento", "Fechou com concorrente", "Sem retorno do lead", "Fora do prazo"];
+const LOSS_REASON_IDS = lossReasonNames.map((_, i) => 8000 + i);
+
+function pickLossReasonId(): number | null {
+  const roll = rand();
+  if (roll < 0.15) return null; // sem motivo especificado
+  return pick(LOSS_REASON_IDS);
+}
+
 function pickCatalogElementIds(): number[] {
   const roll = rand();
   if (roll < 0.08) return []; // lead sem produto vinculado
@@ -72,6 +82,7 @@ function buildLeads(): KommoLead[] {
     const created = daysAgo(Math.floor(rand() * 180));
     const status = pick(statuses);
     const isClosed = status.type !== "regular";
+    const isLost = status.type === "lost";
     leads.push({
       id: 5000 + i,
       name: `${pick(products)} - ${pick(["Empresa", "Loja", "Studio", "Grupo"])} ${i + 1}`,
@@ -85,6 +96,7 @@ function buildLeads(): KommoLead[] {
       closest_task_at: null,
       custom_fields_values: [],
       catalog_element_ids: pickCatalogElementIds(),
+      loss_reason_id: isLost ? pickLossReasonId() : null,
     });
   }
   return leads;
@@ -165,6 +177,12 @@ const MOCK_CATALOG_ELEMENTS: KommoCatalogElement[] = products.map((name, i) => (
   custom_fields_values: [],
 }));
 
+const MOCK_LOSS_REASONS: KommoLossReason[] = lossReasonNames.map((name, i) => ({
+  id: LOSS_REASON_IDS[i],
+  name,
+  sort: i,
+}));
+
 const MOCK_ACCOUNT: KommoAccount = {
   id: 1,
   name: "Conta Demonstração",
@@ -196,4 +214,8 @@ export function getMockDataset(): KommoDataset {
 
 export function getMockProductLinkEvents(): KommoProductLinkEvent[] {
   return MOCK_PRODUCT_LINK_EVENTS;
+}
+
+export function getMockLossReasons(): KommoLossReason[] {
+  return MOCK_LOSS_REASONS;
 }

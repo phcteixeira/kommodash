@@ -5,6 +5,7 @@ import type {
   KommoCatalogElement,
   KommoCustomField,
   KommoLead,
+  KommoLossReason,
   KommoPipeline,
   KommoPipelineStatus,
   KommoProductLinkEvent,
@@ -30,6 +31,8 @@ function normalizeStatusType(raw: {
 export interface LeadFilter {
   createdFrom?: Date;
   createdTo?: Date;
+  closedFrom?: Date;
+  closedTo?: Date;
 }
 
 export async function getAccount(): Promise<KommoAccount> {
@@ -58,6 +61,12 @@ export async function getLeads(filter: LeadFilter = {}): Promise<KommoLead[]> {
   }
   if (filter.createdTo) {
     params.set("filter[created_at][to]", String(Math.floor(filter.createdTo.getTime() / 1000)));
+  }
+  if (filter.closedFrom) {
+    params.set("filter[closed_at][from]", String(Math.floor(filter.closedFrom.getTime() / 1000)));
+  }
+  if (filter.closedTo) {
+    params.set("filter[closed_at][to]", String(Math.floor(filter.closedTo.getTime() / 1000)));
   }
   params.set("with", "catalog_elements");
   const query = params.toString();
@@ -100,6 +109,10 @@ export async function getPipelines(): Promise<KommoPipeline[]> {
 
 export async function getUsers(): Promise<KommoUser[]> {
   return kommoFetchAllPages<"users", KommoUser>("/users", "users");
+}
+
+export async function getLossReasons(): Promise<KommoLossReason[]> {
+  return kommoFetchAllPages<"loss_reasons", KommoLossReason>("/leads/loss_reasons", "loss_reasons");
 }
 
 /**

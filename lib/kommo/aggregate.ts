@@ -4,6 +4,7 @@ import type {
   KommoCatalogElement,
   KommoCustomField,
   KommoLead,
+  KommoLossReason,
   KommoPipeline,
   KommoPipelineStatus,
   KommoProductLinkEvent,
@@ -394,4 +395,57 @@ export function buildClosings(
   const productSummary = Array.from(countByProduct.values()).sort((a, b) => b.count - a.count);
 
   return { rows, totalClosings: rows.length, approximateCount, productSummary };
+}
+
+// ---------- Perdas (leads perdidos por motivo) ----------
+
+const NO_REASON_KEY = -1;
+const NO_REASON_LABEL = "Sem motivo especificado";
+
+export interface LossReasonRow {
+  reasonId: number;
+  reasonName: string;
+  count: number;
+}
+
+export interface LossReasonsReport {
+  rows: LossReasonRow[];
+  totalLosses: number;
+}
+
+/**
+ * Agrupa leads perdidos (status do tipo "lost") por motivo de perda, dentro
+ * de uma janela de tempo baseada em `closed_at` — quando o lead foi marcado
+ * como perdido. Leads sem `loss_reason_id` entram em "Sem motivo especificado".
+ */
+export function buildLossReasons(
+  leads: KommoLead[],
+  lossReasons: KommoLossReason[],
+  statusTypeMap: Map<number, PipelineStatusType>,
+  window: { from: Date; to: Date }
+): LossReasonsReport {
+  const reasonNameById = new Map(lossReasons.map((r) => [r.id, r.name]));
+  const fromSec = Math.floor(window.from.getTime() / 1000);
+  const toSec = Math.floor(window.to.getTime() / 1000);
+
+  const countByReason = new Map<number, number>();
+
+  for (const lead of leads) {
+    if (statusTypeMap.get(lead.status_id) !== "lost") continue;
+    if (!lead.closed_at || lead.closed_at < fromSec || lead.closed_at > toSec) continue;
+    const reasonId = lead.loss_reason_id ?? NO_REASON_KEY;
+    countByReason.set(reasonId, (countByReason.get(reasonId) ?? 0) + 1);
+  }
+
+  const rows = Array.from(countByReason.entries())
+    .map(([reasonId, count]) => ({
+      reasonId,
+      reasonName: reasonId === NO_REASON_KEY ? NO_REASON_LABEL : reasonNameById.get(reasonId) ?? `Motivo ${reasonId}`,
+      count,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  const totalLosses = rows.reduce((sum, r) => sum + r.count, 0);
+
+  return { rows, totalLosses };
 }

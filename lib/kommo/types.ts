@@ -24,6 +24,7 @@ export interface KommoLead {
   custom_fields_values: KommoCustomFieldValue[] | null;
   /** IDs dos elementos de catálogo (produtos) vinculados ao lead. */
   catalog_element_ids: number[];
+  loss_reason_id: number | null;
 }
 
 export type PipelineStatusType = "regular" | "won" | "lost";
@@ -96,6 +97,12 @@ export interface KommoCatalogElement {
   name: string;
   catalog_id: number;
   custom_fields_values: KommoCustomFieldValue[] | null;
+}
+
+export interface KommoLossReason {
+  id: number;
+  name: string;
+  sort: number;
 }
 
 export interface KommoAccount {
