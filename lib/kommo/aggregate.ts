@@ -399,8 +399,8 @@ export function buildClosings(
 
 // ---------- Perdas (leads perdidos por motivo) ----------
 
-const NO_REASON_KEY = -1;
-const NO_REASON_LABEL = "Sem motivo especificado";
+export const NO_REASON_KEY = -1;
+export const NO_REASON_LABEL = "Sem motivo especificado";
 
 export interface LossReasonRow {
   reasonId: number;
@@ -448,4 +448,51 @@ export function buildLossReasons(
   const totalLosses = rows.reduce((sum, r) => sum + r.count, 0);
 
   return { rows, totalLosses };
+}
+
+export function resolveLossReasonName(reasonId: number, lossReasons: KommoLossReason[]): string {
+  if (reasonId === NO_REASON_KEY) return NO_REASON_LABEL;
+  return lossReasons.find((r) => r.id === reasonId)?.name ?? `Motivo ${reasonId}`;
+}
+
+export interface LossDetailRow {
+  leadId: number;
+  leadName: string;
+  closedAt: number; // unix seconds
+  userId: number;
+  userName: string;
+}
+
+/**
+ * Detalha, lead a lead, as perdas de um motivo específico dentro da janela
+ * de tempo — mesma filtragem de `buildLossReasons`, mas sem agregar por
+ * motivo. Usada na subpágina de detalhamento de Perdas.
+ */
+export function buildLossReasonDetail(
+  leads: KommoLead[],
+  users: KommoUser[],
+  statusTypeMap: Map<number, PipelineStatusType>,
+  reasonId: number,
+  window: { from: Date; to: Date }
+): LossDetailRow[] {
+  const userNameById = new Map(users.map((u) => [u.id, u.name]));
+  const fromSec = Math.floor(window.from.getTime() / 1000);
+  const toSec = Math.floor(window.to.getTime() / 1000);
+
+  const rows: LossDetailRow[] = [];
+  for (const lead of leads) {
+    if (statusTypeMap.get(lead.status_id) !== "lost") continue;
+    if (!lead.closed_at || lead.closed_at < fromSec || lead.closed_at > toSec) continue;
+    if ((lead.loss_reason_id ?? NO_REASON_KEY) !== reasonId) continue;
+
+    rows.push({
+      leadId: lead.id,
+      leadName: lead.name,
+      closedAt: lead.closed_at,
+      userId: lead.responsible_user_id,
+      userName: userNameById.get(lead.responsible_user_id) ?? `Usuário ${lead.responsible_user_id}`,
+    });
+  }
+
+  return rows.sort((a, b) => b.closedAt - a.closedAt);
 }

@@ -1,13 +1,14 @@
+import Link from "next/link";
 import { loadKommoDataset, loadLossReasons } from "@/lib/kommo/dataset";
 import { buildLossReasons, buildStatusTypeMap } from "@/lib/kommo/aggregate";
 import { resolveClosingsWindow, toDateInputValue } from "@/lib/date-range";
 import { formatNumber } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ClosingsPeriodFilter } from "@/components/filters/ClosingsPeriodFilter";
+import { PerdasFilterBar } from "@/components/filters/PerdasFilterBar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { Table } from "@/components/ui/Table";
-import { XCircle, Layers, AlertTriangle } from "lucide-react";
+import { XCircle, Layers, AlertTriangle, ChevronRight } from "lucide-react";
 
 export default async function PerdasPage({
   searchParams,
@@ -30,18 +31,19 @@ export default async function PerdasPage({
   const report = buildLossReasons(leads, lossReasonsResult.lossReasons, statusTypeMap, window);
   const topReason = report.rows[0];
 
+  // Preserva o período atual ao navegar para o detalhamento de um motivo.
+  const detailQuery = new URLSearchParams();
+  detailQuery.set("period", window.key);
+  if (window.key === "custom") {
+    detailQuery.set("from", toDateInputValue(window.from));
+    detailQuery.set("to", toDateInputValue(window.to));
+  }
+
   return (
     <div>
       <PageHeader
         title="Perdas"
         description="Leads perdidos no período selecionado, agrupados pelo motivo de perda."
-        filters={
-          <ClosingsPeriodFilter
-            current={window.key}
-            from={toDateInputValue(window.from)}
-            to={toDateInputValue(window.to)}
-          />
-        }
       />
 
       {isDemo ? <div className="mb-6"><EmptyState variant={error ? "error" : "not-configured"} message={error} /></div> : null}
@@ -57,7 +59,15 @@ export default async function PerdasPage({
         />
       </div>
 
-      <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="mt-6">
+        <PerdasFilterBar
+          currentPeriod={window.key}
+          currentFrom={toDateInputValue(window.from)}
+          currentTo={toDateInputValue(window.to)}
+        />
+      </div>
+
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
         <h2 className="mb-4 font-medium text-[var(--text-primary)]">Perdas por motivo</h2>
         <Table
           keyFor={(r) => r.reasonId}
@@ -65,6 +75,19 @@ export default async function PerdasPage({
           columns={[
             { header: "Motivo de perda", cell: (r) => r.reasonName },
             { header: "Quantidade", cell: (r) => formatNumber(r.count), align: "right" },
+            {
+              header: "",
+              cell: (r) => (
+                <Link
+                  href={`/dashboard/perdas/${r.reasonId}?${detailQuery.toString()}`}
+                  className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] transition-colors hover:bg-black/5"
+                >
+                  Detalhamento
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Link>
+              ),
+              align: "right",
+            },
           ]}
         />
       </div>
