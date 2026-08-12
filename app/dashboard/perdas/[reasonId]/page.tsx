@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { loadKommoDataset, loadLossReasons } from "@/lib/kommo/dataset";
 import { buildLossReasonDetail, buildStatusTypeMap, resolveLossReasonName } from "@/lib/kommo/aggregate";
@@ -6,6 +5,7 @@ import { resolveClosingsWindow } from "@/lib/date-range";
 import { formatDate, formatNumber } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { LinkButton } from "@/components/ui/LinkButton";
 import { Table } from "@/components/ui/Table";
 
 export default async function PerdaMotivoDetailPage({
@@ -42,13 +42,13 @@ export default async function PerdaMotivoDetailPage({
 
   return (
     <div>
-      <Link
+      <LinkButton
         href={`/dashboard/perdas?${backQuery.toString()}`}
+        label="Voltar para Perdas"
+        icon={<ArrowLeft className="h-3.5 w-3.5" />}
+        iconPosition="before"
         className="mb-4 inline-flex items-center gap-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Voltar para Perdas
-      </Link>
+      />
 
       <PageHeader
         title={reasonName}

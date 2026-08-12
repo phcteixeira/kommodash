@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { loadKommoDataset, loadLossReasons } from "@/lib/kommo/dataset";
 import { buildLossReasons, buildStatusTypeMap } from "@/lib/kommo/aggregate";
 import { resolveClosingsWindow, toDateInputValue } from "@/lib/date-range";
@@ -7,6 +6,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { PerdasFilterBar } from "@/components/filters/PerdasFilterBar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { KpiCard } from "@/components/ui/KpiCard";
+import { LinkButton } from "@/components/ui/LinkButton";
 import { Table } from "@/components/ui/Table";
 import { XCircle, Layers, AlertTriangle, ChevronRight } from "lucide-react";
 
@@ -78,13 +78,12 @@ export default async function PerdasPage({
             {
               header: "",
               cell: (r) => (
-                <Link
+                <LinkButton
                   href={`/dashboard/perdas/${r.reasonId}?${detailQuery.toString()}`}
+                  label="Detalhamento"
+                  icon={<ChevronRight className="h-3.5 w-3.5" />}
                   className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] transition-colors hover:bg-black/5"
-                >
-                  Detalhamento
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </Link>
+                />
               ),
               align: "right",
             },
