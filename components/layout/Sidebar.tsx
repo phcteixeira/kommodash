@@ -7,9 +7,6 @@ import {
   LayoutDashboard,
   ListChecks,
   Megaphone,
-  Package,
-  Users,
-  Wallet,
   Workflow,
   XCircle,
 } from "lucide-react";
@@ -20,12 +17,9 @@ const links = [
   { href: "/dashboard/leads", label: "Leads e funil", icon: Filter },
   { href: "/dashboard/performance-leads", label: "Performance de leads", icon: Workflow },
   { href: "/dashboard/marketing", label: "Marketing digital", icon: Megaphone },
-  { href: "/dashboard/vendedores", label: "Vendedores", icon: Users },
-  { href: "/dashboard/faturamento", label: "Faturamento", icon: Wallet },
   { href: "/dashboard/atividades", label: "Atividades", icon: ListChecks },
   { href: "/dashboard/contratos", label: "Contratos", icon: FileSignature },
   { href: "/dashboard/perdas", label: "Perdas", icon: XCircle },
-  { href: "/dashboard/produtos", label: "Produtos e campos", icon: Package },
 ];
 
 export function Sidebar() {

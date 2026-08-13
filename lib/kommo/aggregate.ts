@@ -1,6 +1,4 @@
-import { format, startOfDay, startOfMonth, startOfWeek } from "date-fns";
 import type {
-  KommoCatalog,
   KommoCatalogElement,
   KommoCustomField,
   KommoLead,
@@ -121,87 +119,6 @@ export function buildSellerPerformance(
     .sort((a, b) => b.wonRevenue - a.wonRevenue);
 }
 
-// ---------- Faturamento ----------
-
-export type TimeGranularity = "day" | "week" | "month";
-/** @deprecated use TimeGranularity — mantido para não quebrar imports existentes. */
-export type RevenueGranularity = TimeGranularity;
-
-export interface RevenuePoint {
-  periodKey: string;
-  periodLabel: string;
-  wonRevenue: number;
-  wonCount: number;
-  lostCount: number;
-}
-
-export function bucketStart(date: Date, granularity: TimeGranularity): Date {
-  if (granularity === "day") return startOfDay(date);
-  if (granularity === "week") return startOfWeek(date, { weekStartsOn: 1 });
-  return startOfMonth(date);
-}
-
-export function periodLabelFormat(granularity: TimeGranularity): string {
-  return granularity === "month" ? "MMM/yyyy" : "dd/MM/yyyy";
-}
-
-export function buildRevenueByPeriod(
-  leads: KommoLead[],
-  statusTypeMap: Map<number, PipelineStatusType>,
-  granularity: RevenueGranularity = "month"
-): RevenuePoint[] {
-  const buckets = new Map<string, RevenuePoint>();
-  const labelFmt = periodLabelFormat(granularity);
-
-  for (const lead of leads) {
-    if (!lead.closed_at) continue;
-    const type = statusTypeMap.get(lead.status_id);
-    if (type !== "won" && type !== "lost") continue;
-
-    const date = new Date(lead.closed_at * 1000);
-    const bucketDate = bucketStart(date, granularity);
-    const key = bucketDate.toISOString();
-
-    const point = buckets.get(key) ?? {
-      periodKey: key,
-      periodLabel: format(bucketDate, labelFmt),
-      wonRevenue: 0,
-      wonCount: 0,
-      lostCount: 0,
-    };
-
-    if (type === "won") {
-      point.wonRevenue += lead.price || 0;
-      point.wonCount += 1;
-    } else {
-      point.lostCount += 1;
-    }
-
-    buckets.set(key, point);
-  }
-
-  return Array.from(buckets.values()).sort((a, b) => a.periodKey.localeCompare(b.periodKey));
-}
-
-export interface RevenueSummary {
-  totalWonRevenue: number;
-  totalWonCount: number;
-  totalLostCount: number;
-  avgTicket: number;
-}
-
-export function buildRevenueSummary(points: RevenuePoint[]): RevenueSummary {
-  const totalWonRevenue = points.reduce((s, p) => s + p.wonRevenue, 0);
-  const totalWonCount = points.reduce((s, p) => s + p.wonCount, 0);
-  const totalLostCount = points.reduce((s, p) => s + p.lostCount, 0);
-  return {
-    totalWonRevenue,
-    totalWonCount,
-    totalLostCount,
-    avgTicket: totalWonCount > 0 ? totalWonRevenue / totalWonCount : 0,
-  };
-}
-
 // ---------- Atividades e tarefas ----------
 
 export interface ActivitySummary {
@@ -239,59 +156,6 @@ export function buildActivitySummary(tasks: KommoTask[], users: KommoUser[]): Ac
       };
     })
     .sort((a, b) => b.total - a.total);
-}
-
-// ---------- Produtos e campos personalizados ----------
-
-export interface CatalogSummary {
-  catalogId: number;
-  catalogName: string;
-  elementCount: number;
-  elements: { id: number; name: string }[];
-}
-
-export function buildCatalogSummary(
-  catalogs: KommoCatalog[],
-  elements: KommoCatalogElement[]
-): CatalogSummary[] {
-  return catalogs.map((catalog) => {
-    const catalogElements = elements.filter((e) => e.catalog_id === catalog.id);
-    return {
-      catalogId: catalog.id,
-      catalogName: catalog.name,
-      elementCount: catalogElements.length,
-      elements: catalogElements.slice(0, 50).map((e) => ({ id: e.id, name: e.name })),
-    };
-  });
-}
-
-export interface CustomFieldsSummary {
-  entityType: string;
-  totalFields: number;
-  byType: { type: string; count: number }[];
-  fields: KommoCustomField[];
-}
-
-export function buildCustomFieldsSummary(fields: KommoCustomField[]): CustomFieldsSummary[] {
-  const byEntity = new Map<string, KommoCustomField[]>();
-  for (const field of fields) {
-    const list = byEntity.get(field.entity_type) ?? [];
-    list.push(field);
-    byEntity.set(field.entity_type, list);
-  }
-
-  return Array.from(byEntity.entries()).map(([entityType, entityFields]) => {
-    const typeCounts = new Map<string, number>();
-    for (const f of entityFields) {
-      typeCounts.set(f.type, (typeCounts.get(f.type) ?? 0) + 1);
-    }
-    return {
-      entityType,
-      totalFields: entityFields.length,
-      byType: Array.from(typeCounts.entries()).map(([type, count]) => ({ type, count })),
-      fields: entityFields,
-    };
-  });
 }
 
 // ---------- Contratos (fechamentos: lead x produto x data) ----------
