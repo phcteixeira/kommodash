@@ -3,6 +3,7 @@ import type {
   KommoCatalog,
   KommoCatalogElement,
   KommoCustomField,
+  KommoCustomFieldValue,
   KommoDataset,
   KommoLead,
   KommoLossReason,
@@ -11,6 +12,7 @@ import type {
   KommoTask,
   KommoUser,
 } from "./types";
+import { PROPOSTAS_ENVIADAS_FIELD_NAME, SERVICO_FIELD_NAME } from "./aggregate";
 
 // PRNG determinístico (mulberry32) para que os dados de demonstração
 // sejam estáveis entre requisições, em vez de mudar a cada refresh.
@@ -75,6 +77,54 @@ function pickCatalogElementIds(): number[] {
   return [first, second];
 }
 
+// IDs dos campos "Serviço" e "Propostas Enviadas" no dataset mockado — mesmos
+// nomes/opções de `products`, espelhando a configuração real da conta Kommo
+// (ver `buildLeadPerformanceFunnel`, que localiza os campos pelo nome).
+const SERVICO_FIELD_ID = 20;
+const PROPOSTAS_FIELD_ID = 21;
+const SERVICO_ENUM_IDS = products.map((_, i) => 9100 + i);
+const PROPOSTAS_ENUM_IDS = products.map((_, i) => 9200 + i);
+
+/** Índices (em `products`) marcados como demanda identificada — nem todo lead tem um. */
+function pickServiceIndexes(): number[] {
+  const roll = rand();
+  if (roll < 0.12) return []; // SDR ainda não identificou demanda
+  if (roll < 0.55) return [Math.floor(rand() * products.length)]; // 1 serviço (mais comum)
+  // 2 serviços distintos
+  const first = Math.floor(rand() * products.length);
+  let second = Math.floor(rand() * products.length);
+  while (second === first) second = Math.floor(rand() * products.length);
+  return [first, second];
+}
+
+/** De cada serviço identificado, só uma parte é de fato formalizada em proposta. */
+function pickProposalIndexes(serviceIndexes: number[]): number[] {
+  return serviceIndexes.filter(() => rand() < 0.65);
+}
+
+function buildLeadCustomFieldsValues(serviceIndexes: number[], proposalIndexes: number[]): KommoCustomFieldValue[] {
+  const values: KommoCustomFieldValue[] = [];
+  if (serviceIndexes.length > 0) {
+    values.push({
+      field_id: SERVICO_FIELD_ID,
+      field_name: SERVICO_FIELD_NAME,
+      field_code: null,
+      field_type: "multiselect",
+      values: serviceIndexes.map((i) => ({ value: products[i], enum_id: SERVICO_ENUM_IDS[i] })),
+    });
+  }
+  if (proposalIndexes.length > 0) {
+    values.push({
+      field_id: PROPOSTAS_FIELD_ID,
+      field_name: PROPOSTAS_ENVIADAS_FIELD_NAME,
+      field_code: null,
+      field_type: "multiselect",
+      values: proposalIndexes.map((i) => ({ value: products[i], enum_id: PROPOSTAS_ENUM_IDS[i] })),
+    });
+  }
+  return values;
+}
+
 function buildLeads(): KommoLead[] {
   const leads: KommoLead[] = [];
   const statuses = MOCK_PIPELINES[0].statuses;
@@ -83,6 +133,8 @@ function buildLeads(): KommoLead[] {
     const status = pick(statuses);
     const isClosed = status.type !== "regular";
     const isLost = status.type === "lost";
+    const serviceIndexes = pickServiceIndexes();
+    const proposalIndexes = pickProposalIndexes(serviceIndexes);
     leads.push({
       id: 5000 + i,
       name: `${pick(products)} - ${pick(["Empresa", "Loja", "Studio", "Grupo"])} ${i + 1}`,
@@ -94,7 +146,7 @@ function buildLeads(): KommoLead[] {
       updated_at: created + Math.floor(rand() * 10) * 86400,
       closed_at: isClosed ? created + Math.floor(rand() * 20) * 86400 : null,
       closest_task_at: null,
-      custom_fields_values: [],
+      custom_fields_values: buildLeadCustomFieldsValues(serviceIndexes, proposalIndexes),
       catalog_element_ids: pickCatalogElementIds(),
       loss_reason_id: isLost ? pickLossReasonId() : null,
     });
@@ -156,6 +208,22 @@ const MOCK_CUSTOM_FIELDS: KommoCustomField[] = [
     { id: 3, value: "Redes sociais", sort: 3 },
   ] },
   { id: 2, name: "Segmento", code: null, type: "text", entity_type: "leads" },
+  {
+    id: SERVICO_FIELD_ID,
+    name: SERVICO_FIELD_NAME,
+    code: null,
+    type: "multiselect",
+    entity_type: "leads",
+    enums: products.map((name, i) => ({ id: SERVICO_ENUM_IDS[i], value: name, sort: i })),
+  },
+  {
+    id: PROPOSTAS_FIELD_ID,
+    name: PROPOSTAS_ENVIADAS_FIELD_NAME,
+    code: null,
+    type: "multiselect",
+    entity_type: "leads",
+    enums: products.map((name, i) => ({ id: PROPOSTAS_ENUM_IDS[i], value: name, sort: i })),
+  },
   { id: 3, name: "Telefone", code: "PHONE", type: "multitext", entity_type: "contacts" },
   { id: 4, name: "E-mail", code: "EMAIL", type: "multitext", entity_type: "contacts" },
   { id: 5, name: "CNPJ", code: null, type: "text", entity_type: "companies" },

@@ -496,3 +496,88 @@ export function buildLossReasonDetail(
 
   return rows.sort((a, b) => b.closedAt - a.closedAt);
 }
+
+// ---------- Performance de leads (funil Serviço → Propostas Enviadas → Contratos) ----------
+
+export const SERVICO_FIELD_NAME = "Serviço";
+export const PROPOSTAS_ENVIADAS_FIELD_NAME = "Propostas Enviadas";
+
+export type LeadFunnelStageKey = "created" | "demand" | "proposal" | "contract";
+
+export interface LeadFunnelStage {
+  key: LeadFunnelStageKey;
+  label: string;
+  /** "leads" na 1ª etapa; nas demais, a unidade é o item marcado/vinculado — não o lead. */
+  unitLabel: string;
+  count: number;
+  /** % sobre a 1ª etapa (Total de Leads Criados). */
+  shareOfTotal: number;
+  /** % sobre a contagem da etapa anterior. null na 1ª etapa. */
+  conversionFromPrevious: number | null;
+}
+
+export interface LeadFunnelReport {
+  stages: LeadFunnelStage[];
+  totalLeadsCreated: number;
+  /** Contratos efetivados ÷ leads criados — taxa de conversão geral do funil (unidades diferentes, mas é o headline que fecha o funil). */
+  overallConversionRate: number;
+}
+
+function findLeadFieldId(customFields: KommoCustomField[], name: string): number | null {
+  const normalized = name.trim().toLowerCase();
+  return (
+    customFields.find((f) => f.entity_type === "leads" && f.name.trim().toLowerCase() === normalized)?.id ?? null
+  );
+}
+
+/** Quantas opções estão marcadas (checked) em um campo de múltipla escolha, para um lead. */
+function countCheckedValues(lead: KommoLead, fieldId: number | null): number {
+  if (fieldId === null) return 0;
+  const field = lead.custom_fields_values?.find((v) => v.field_id === fieldId);
+  return field?.values.length ?? 0;
+}
+
+/**
+ * Levantamento de funil: Total de Leads Criados > Identificação de Demanda
+ * (marcações no campo "Serviço") > Propostas Enviadas (marcações no campo
+ * "Propostas Enviadas") > Contratos Efetivados (produtos vinculados). A partir
+ * da 2ª etapa, a contagem é de itens marcados/vinculados — não de leads
+ * distintos: um lead que marca 3 serviços contribui com 3 na etapa de demanda.
+ * Janela de tempo baseada em `created_at` do lead (coorte de criação).
+ */
+export function buildLeadPerformanceFunnel(
+  leads: KommoLead[],
+  customFields: KommoCustomField[],
+  window: { from: Date; to: Date }
+): LeadFunnelReport {
+  const fromSec = Math.floor(window.from.getTime() / 1000);
+  const toSec = Math.floor(window.to.getTime() / 1000);
+  const leadsInWindow = leads.filter((l) => l.created_at >= fromSec && l.created_at <= toSec);
+
+  const servicoFieldId = findLeadFieldId(customFields, SERVICO_FIELD_NAME);
+  const propostasFieldId = findLeadFieldId(customFields, PROPOSTAS_ENVIADAS_FIELD_NAME);
+
+  const totalLeadsCreated = leadsInWindow.length;
+  const demandCount = leadsInWindow.reduce((sum, l) => sum + countCheckedValues(l, servicoFieldId), 0);
+  const proposalCount = leadsInWindow.reduce((sum, l) => sum + countCheckedValues(l, propostasFieldId), 0);
+  const contractCount = leadsInWindow.reduce((sum, l) => sum + (l.catalog_element_ids?.length ?? 0), 0);
+
+  const raw: { key: LeadFunnelStageKey; label: string; unitLabel: string; count: number }[] = [
+    { key: "created", label: "Total de Leads Criados", unitLabel: "leads", count: totalLeadsCreated },
+    { key: "demand", label: "Identificação de Demanda", unitLabel: "serviços marcados", count: demandCount },
+    { key: "proposal", label: "Propostas Enviadas", unitLabel: "propostas marcadas", count: proposalCount },
+    { key: "contract", label: "Contratos Efetivados", unitLabel: "produtos vinculados", count: contractCount },
+  ];
+
+  const stages: LeadFunnelStage[] = raw.map((stage, i) => ({
+    ...stage,
+    shareOfTotal: totalLeadsCreated > 0 ? stage.count / totalLeadsCreated : 0,
+    conversionFromPrevious: i === 0 ? null : raw[i - 1].count > 0 ? stage.count / raw[i - 1].count : 0,
+  }));
+
+  return {
+    stages,
+    totalLeadsCreated,
+    overallConversionRate: totalLeadsCreated > 0 ? contractCount / totalLeadsCreated : 0,
+  };
+}
