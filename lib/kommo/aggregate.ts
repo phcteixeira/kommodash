@@ -648,14 +648,23 @@ export function buildFunnelConversion(
   events: KommoStatusChangeEvent[],
   pipeline: KommoPipeline,
   statusFilter: FunnelStatusFilter,
-  createdFrom?: Date
+  createdFrom?: Date,
+  createdTo?: Date
 ): FunnelConversionReport {
   const fromSec = createdFrom ? Math.floor(createdFrom.getTime() / 1000) : null;
+  const toSec = createdTo ? Math.floor(createdTo.getTime() / 1000) : null;
   const localTypeById = new Map(pipeline.statuses.map((s) => [s.id, s.type]));
 
-  const leadsInScope = leads.filter((l) => {
+  // Cohorte do pipeline+período, antes do filtro de aba (Todos os/Ativos/Fechados) — usada para
+  // o ciclo de vida médio, que não deve zerar na aba "Ativos" (leads ativos nunca têm closed_at).
+  const cohortLeads = leads.filter((l) => {
     if (l.pipeline_id !== pipeline.id) return false;
     if (fromSec !== null && l.created_at < fromSec) return false;
+    if (toSec !== null && l.created_at > toSec) return false;
+    return true;
+  });
+
+  const leadsInScope = cohortLeads.filter((l) => {
     const type = localTypeById.get(l.status_id) ?? "regular";
     if (statusFilter === "active") return type === "regular";
     if (statusFilter === "closed") return type === "won" || type === "lost";
@@ -734,7 +743,9 @@ export function buildFunnelConversion(
 
   const lostCount = leadsInScope.filter((l) => localTypeById.get(l.status_id) === "lost").length;
 
-  const closedLeads = leadsInScope.filter((l) => l.closed_at !== null);
+  // Da cohorte inteira (não de `leadsInScope`) — na aba "Ativos" não haveria nenhum lead fechado
+  // para calcular a média, mas o ciclo de vida típico do funil continua sendo uma informação útil ali.
+  const closedLeads = cohortLeads.filter((l) => l.closed_at !== null);
   const avgLifecycleDays =
     closedLeads.length > 0
       ? closedLeads.reduce((sum, l) => sum + (l.closed_at! - l.created_at) / 86400, 0) / closedLeads.length

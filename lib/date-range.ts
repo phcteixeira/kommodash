@@ -81,3 +81,48 @@ export function resolveClosingsWindow(params: {
   if (key === "15d") return { key, from: startOfDay(subDays(now, 14)), to: endOfDay(now) };
   return { key, from: startOfDay(subMonths(now, 1)), to: endOfDay(now) }; // month
 }
+
+// ---------- Filtro de período da página Leads e funil ----------
+// Mesmos presets de RANGE_PRESETS + opção "Personalizado" (data exata) — um
+// tipo à parte para não adicionar "Personalizado" às outras páginas que usam
+// RANGE_PRESETS/DateRangeFilter (Vendedores, Atividades, Faturamento, Visão
+// geral), que não têm a UI de data personalizada.
+
+export const FUNNEL_RANGE_PRESETS = {
+  ...RANGE_PRESETS,
+  custom: { label: "Personalizado", days: null },
+} as const;
+
+export type FunnelRangeKey = keyof typeof FUNNEL_RANGE_PRESETS;
+
+export const DEFAULT_FUNNEL_RANGE: FunnelRangeKey = "90d";
+
+export function isFunnelRangeKey(value: string | undefined): value is FunnelRangeKey {
+  return !!value && value in FUNNEL_RANGE_PRESETS;
+}
+
+export interface FunnelRangeWindow {
+  key: FunnelRangeKey;
+  /** undefined = sem limite inferior ("Todo o período"). */
+  from?: Date;
+  /** undefined = até agora (todo preset fixo é aberto no fim; só "custom" define um fim explícito). */
+  to?: Date;
+}
+
+export function resolveFunnelRange(params: { range?: string; from?: string; to?: string }): FunnelRangeWindow {
+  const key: FunnelRangeKey = isFunnelRangeKey(params.range) ? params.range : DEFAULT_FUNNEL_RANGE;
+
+  if (key === "custom") {
+    const now = new Date();
+    const parsedFrom = params.from ? parseDateInputValue(params.from) : subDays(now, 89);
+    const parsedTo = params.to ? parseDateInputValue(params.to) : now;
+    const [start, end] = parsedFrom <= parsedTo ? [parsedFrom, parsedTo] : [parsedTo, parsedFrom];
+    return { key, from: startOfDay(start), to: endOfDay(end) };
+  }
+
+  const preset = FUNNEL_RANGE_PRESETS[key];
+  if (preset.days === null) return { key }; // "all"
+  const from = new Date();
+  from.setDate(from.getDate() - preset.days);
+  return { key, from };
+}

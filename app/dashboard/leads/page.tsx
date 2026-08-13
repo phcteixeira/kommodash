@@ -1,6 +1,6 @@
 import { loadFunnelEvents, loadKommoDataset } from "@/lib/kommo/dataset";
 import { buildFunnelConversion, type FunnelStatusFilter } from "@/lib/kommo/aggregate";
-import { resolveRange } from "@/lib/date-range";
+import { resolveFunnelRange, toDateInputValue } from "@/lib/date-range";
 import { formatDays, formatNumber, formatPercent } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { FunnelFilterBar } from "@/components/filters/FunnelFilterBar";
@@ -17,14 +17,14 @@ function isStatusFilter(value?: string): value is FunnelStatusFilter {
 export default async function LeadsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ pipeline?: string; range?: string; status?: string }>;
+  searchParams: Promise<{ pipeline?: string; range?: string; from?: string; to?: string; status?: string }>;
 }) {
-  const { pipeline, range, status } = await searchParams;
-  const { key: rangeKey, from } = resolveRange(range);
+  const { pipeline, range, from: fromParam, to: toParam, status } = await searchParams;
+  const { key: rangeKey, from, to } = resolveFunnelRange({ range, from: fromParam, to: toParam });
   const statusFilter: FunnelStatusFilter = isStatusFilter(status) ? status : "all";
 
   const [{ dataset, isDemo: datasetIsDemo, error: datasetError }, funnelEventsResult] = await Promise.all([
-    loadKommoDataset({ createdFrom: from }),
+    loadKommoDataset({ createdFrom: from, createdTo: to }),
     loadFunnelEvents(from),
   ]);
   const { leads, pipelines } = dataset;
@@ -34,7 +34,7 @@ export default async function LeadsPage({
 
   const selectedPipeline = pipelines.find((p) => p.id === Number(pipeline)) ?? pipelines[0];
   const report = selectedPipeline
-    ? buildFunnelConversion(leads, funnelEventsResult.events, selectedPipeline, statusFilter, from)
+    ? buildFunnelConversion(leads, funnelEventsResult.events, selectedPipeline, statusFilter, from, to)
     : null;
 
   return (
@@ -48,12 +48,20 @@ export default async function LeadsPage({
 
       {selectedPipeline && report ? (
         <>
-          <FunnelStatusTabs current={statusFilter} pipelineId={selectedPipeline.id} range={rangeKey} />
+          <FunnelStatusTabs
+            current={statusFilter}
+            pipelineId={selectedPipeline.id}
+            range={rangeKey}
+            from={from ? toDateInputValue(from) : undefined}
+            to={to ? toDateInputValue(to) : undefined}
+          />
 
           <FunnelFilterBar
             pipelines={pipelines.map((p) => ({ id: p.id, name: p.name }))}
             currentPipelineId={selectedPipeline.id}
             currentRange={rangeKey}
+            currentFrom={from ? toDateInputValue(from) : ""}
+            currentTo={to ? toDateInputValue(to) : ""}
             currentStatus={statusFilter}
           />
 

@@ -1,16 +1,31 @@
-import { RANGE_PRESETS, type RangeKey } from "@/lib/date-range";
+"use client";
+
+import { useState } from "react";
+import { FUNNEL_RANGE_PRESETS, type FunnelRangeKey } from "@/lib/date-range";
 import type { FunnelStatusFilter } from "@/lib/kommo/aggregate";
 import { filterControlClass, filterLabelClass } from "./PeriodFilterForm";
 
 interface Props {
   pipelines: { id: number; name: string }[];
   currentPipelineId: number;
-  currentRange: RangeKey;
+  currentRange: FunnelRangeKey;
+  currentFrom: string;
+  currentTo: string;
   currentStatus: FunnelStatusFilter;
 }
 
-/** Formulário GET nativo — mesmo padrão de `PeriodFilterForm`, mas com o par de filtros específico desta página (funil + período aberto, sem data personalizada). */
-export function FunnelFilterBar({ pipelines, currentPipelineId, currentRange, currentStatus }: Props) {
+/** Formulário GET nativo — mesmo padrão de `PeriodFilterForm`, com o par funil + período (incl. data personalizada) desta página. */
+export function FunnelFilterBar({
+  pipelines,
+  currentPipelineId,
+  currentRange,
+  currentFrom,
+  currentTo,
+  currentStatus,
+}: Props) {
+  // Só para alternar a visibilidade dos campos de data personalizada — não navega.
+  const [range, setRange] = useState<FunnelRangeKey>(currentRange);
+
   return (
     <form
       method="get"
@@ -33,14 +48,32 @@ export function FunnelFilterBar({ pipelines, currentPipelineId, currentRange, cu
 
       <label className={filterLabelClass}>
         Período
-        <select name="range" defaultValue={currentRange} className={filterControlClass}>
-          {Object.entries(RANGE_PRESETS).map(([key, preset]) => (
+        <select
+          name="range"
+          defaultValue={currentRange}
+          onChange={(e) => setRange(e.target.value as FunnelRangeKey)}
+          className={filterControlClass}
+        >
+          {Object.entries(FUNNEL_RANGE_PRESETS).map(([key, preset]) => (
             <option key={key} value={key}>
               {preset.label}
             </option>
           ))}
         </select>
       </label>
+
+      {range === "custom" ? (
+        <>
+          <label className={filterLabelClass}>
+            De
+            <input type="date" name="from" defaultValue={currentFrom} className={filterControlClass} />
+          </label>
+          <label className={filterLabelClass}>
+            Até
+            <input type="date" name="to" defaultValue={currentTo} className={filterControlClass} />
+          </label>
+        </>
+      ) : null}
 
       <div className="flex items-center gap-2">
         <button

@@ -21,37 +21,39 @@ export function FunnelWaterfallChart({ stages, lost }: Props) {
 
   return (
     <div>
-      <div className="flex flex-col">
+      <div className="flex flex-col gap-3">
         {stages.map((stage, i) => {
           const widthPct = firstCount > 0 ? Math.max(2, (stage.reachedCount / firstCount) * 100) : 0;
           const color = colorForIndex(i, stages.length);
+          // Permanência NESSA etapa antes de avançar — vem anexada à etapa SEGUINTE
+          // (ver LeadFunnelStage/FunnelStageRow.avgDaysInPreviousStage), por isso o "look-ahead".
+          const nextStage = stages[i + 1];
+          const dwellHere = nextStage?.avgDaysInPreviousStage ?? null;
 
           return (
-            <div key={stage.statusId}>
-              {i > 0 && stage.avgDaysInPreviousStage !== null ? (
-                <div className="flex items-center gap-1.5 py-1.5 pl-1 text-xs text-[var(--muted)]">
-                  <ChevronDown className="h-3.5 w-3.5" />
-                  <span>{formatDays(stage.avgDaysInPreviousStage)} de permanência média na etapa anterior</span>
+            <div key={stage.statusId} className="flex items-center gap-4">
+              <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
+                <span className="whitespace-nowrap text-sm font-medium tabular-nums text-[var(--text-secondary)]">
+                  {formatPercent(stage.shareOfFirstStage)}
+                </span>
+                <div
+                  className="h-8 rounded-l-md transition-[width] duration-300 ease-out"
+                  style={{ width: `${widthPct}%`, background: color }}
+                  title={`${stage.name}: ${formatNumber(stage.reachedCount)} leads (${formatPercent(stage.shareOfFirstStage)})`}
+                />
+              </div>
+              {/* Nome/contagem da etapa + (entre as barras) o tempo médio de permanência antes de avançar. */}
+              <div className="w-56 shrink-0">
+                <div className="truncate text-sm font-medium text-[var(--text-primary)]" title={stage.name}>
+                  {stage.name}
                 </div>
-              ) : null}
-
-              <div className="flex items-center gap-4">
-                <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
-                  <span className="whitespace-nowrap text-sm font-medium tabular-nums text-[var(--text-secondary)]">
-                    {formatPercent(stage.shareOfFirstStage)}
-                  </span>
-                  <div
-                    className="h-8 rounded-l-md transition-[width] duration-300 ease-out"
-                    style={{ width: `${widthPct}%`, background: color }}
-                    title={`${stage.name}: ${formatNumber(stage.reachedCount)} leads (${formatPercent(stage.shareOfFirstStage)})`}
-                  />
-                </div>
-                <div className="w-56 shrink-0">
-                  <div className="truncate text-sm font-medium text-[var(--text-primary)]" title={stage.name}>
-                    {stage.name}
+                <div className="text-xs text-[var(--muted)]">{formatNumber(stage.reachedCount)} leads</div>
+                {dwellHere !== null ? (
+                  <div className="mt-1 flex items-center gap-1 text-xs text-[var(--muted)]">
+                    <ChevronDown className="h-3 w-3" />
+                    {formatDays(dwellHere)} até avançar
                   </div>
-                  <div className="text-xs text-[var(--muted)]">{formatNumber(stage.reachedCount)} leads</div>
-                </div>
+                ) : null}
               </div>
             </div>
           );
