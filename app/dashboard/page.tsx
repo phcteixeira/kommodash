@@ -55,6 +55,7 @@ export default async function DashboardOverviewPage({
           label="Contrato por Lead (Média)"
           value={formatDecimal(overview.avgContractsPerLead)}
           icon={Target}
+          hint="Contratos ÷ leads ganhos"
         />
         <KpiCard label="Taxa de Conversão de Lead" value={formatPercent(overview.wonRate)} icon={Percent} />
         <KpiCard

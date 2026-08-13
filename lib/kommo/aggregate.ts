@@ -85,7 +85,7 @@ export interface OverviewSummary {
    * um serviço. Métrica primária de resultado desta conta — ver CLAUDE.md.
    */
   contractCount: number;
-  /** Contratos ÷ leads do período — quantos serviços em média cada lead gera. */
+  /** Contratos ÷ leads GANHOS do período — quantos serviços em média cada cliente fechado gera. */
   avgContractsPerLead: number;
 }
 
@@ -105,7 +105,7 @@ export function buildOverviewSummary(
     wonCount,
     wonRate: totalLeads > 0 ? wonCount / totalLeads : 0,
     contractCount,
-    avgContractsPerLead: totalLeads > 0 ? contractCount / totalLeads : 0,
+    avgContractsPerLead: wonCount > 0 ? contractCount / wonCount : 0,
   };
 }
 
