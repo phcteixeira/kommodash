@@ -13,7 +13,7 @@ import type {
   KommoTask,
   KommoUser,
 } from "./types";
-import { ORIGEM_LEAD_FIELD_NAME, PROPOSTAS_ENVIADAS_FIELD_NAME, SERVICO_FIELD_NAME } from "./aggregate";
+import { PROPOSTAS_ENVIADAS_FIELD_NAME, SERVICO_FIELD_NAME } from "./aggregate";
 
 // PRNG determinístico (mulberry32) para que os dados de demonstração
 // sejam estáveis entre requisições, em vez de mudar a cada refresh.
@@ -145,9 +145,10 @@ const MOCK_CREATIVES = [
 const MOCK_ORIGENS = Object.keys(ORIGEM_LEAD_ENUM_IDS) as (keyof typeof ORIGEM_LEAD_ENUM_IDS)[];
 
 /**
- * Mistura de canais espelhando a conta real: ~55% tráfego pago rastreado
- * (campanha + criativo), ~30% origem classificada manualmente (indicação,
- * já cliente, orgânico), ~15% sem nenhuma origem registrada.
+ * ~55% dos leads com tráfego pago rastreado (campanha + criativo) — mesma
+ * proporção observada na conta real. O restante fica sem nenhum campo de
+ * marketing preenchido: "Origem Lead" existe na conta mas não é usado em
+ * `buildMarketingReport` (preenchimento manual, sem confiabilidade garantida).
  */
 function buildMarketingFieldValues(): KommoCustomFieldValue[] {
   const roll = rand();
@@ -183,19 +184,7 @@ function buildMarketingFieldValues(): KommoCustomFieldValue[] {
       },
     ];
   }
-  if (roll < 0.85) {
-    const origem = pick(MOCK_ORIGENS);
-    return [
-      {
-        field_id: ORIGEM_LEAD_FIELD_ID,
-        field_name: ORIGEM_LEAD_FIELD_NAME,
-        field_code: null,
-        field_type: "select",
-        values: [{ value: origem, enum_id: ORIGEM_LEAD_ENUM_IDS[origem] }],
-      },
-    ];
-  }
-  return []; // sem nenhuma origem registrada
+  return [];
 }
 
 function buildLeads(): KommoLead[] {
@@ -345,8 +334,11 @@ const MOCK_CUSTOM_FIELDS: KommoCustomField[] = [
   { id: UTM_CAMPAIGN_FIELD_ID, name: "utm_campaign", code: "UTM_CAMPAIGN", type: "tracking_data", entity_type: "leads" },
   { id: UTM_CONTENT_FIELD_ID, name: "utm_content", code: "UTM_CONTENT", type: "tracking_data", entity_type: "leads" },
   {
+    // Existe na conta real (preenchimento manual), mas não é usado em
+    // buildMarketingReport — sem confiabilidade garantida. Mantido aqui só
+    // para "Produtos e campos" listar os campos como na conta real.
     id: ORIGEM_LEAD_FIELD_ID,
-    name: ORIGEM_LEAD_FIELD_NAME,
+    name: "Origem Lead",
     code: null,
     type: "select",
     entity_type: "leads",

@@ -784,11 +784,6 @@ const UTM_SOURCE_CODE = "UTM_SOURCE";
 const UTM_CAMPAIGN_CODE = "UTM_CAMPAIGN";
 const UTM_CONTENT_CODE = "UTM_CONTENT";
 
-/** Campo manual de classificação macro (Tráfego/Indicação/Já Cliente/Orgânico) — usado como origem para leads sem UTM. */
-export const ORIGEM_LEAD_FIELD_NAME = "Origem Lead";
-
-export const NO_SOURCE_LABEL = "Sem origem informada";
-
 function findLeadFieldByCode(customFields: KommoCustomField[], code: string): number | null {
   return customFields.find((f) => f.entity_type === "leads" && f.code === code)?.id ?? null;
 }
@@ -821,8 +816,6 @@ export interface MarketingReport {
   trackedShare: number;
   /** Campanhas pagas (agrupadas por `utm_campaign`), ordenadas por volume. */
   campaigns: MarketingSourceRow[];
-  /** Origens não pagas — "Origem Lead" (indicação, já cliente, orgânico) ou "Sem origem informada" — ordenadas por volume. */
-  otherSources: MarketingSourceRow[];
   topCampaign: MarketingSourceRow | null;
   /** Maior taxa de ganho entre campanhas com volume mínimo (evita destacar uma campanha de 1-2 leads por acaso). */
   bestConversionCampaign: MarketingSourceRow | null;
@@ -865,10 +858,11 @@ function buildSourceRow(
 
 /**
  * Volume e conversão de leads por campanha/criativo, a partir dos campos de
- * rastreamento nativos da Kommo (UTM). Leads sem `utm_campaign` (tráfego não
- * pago) são agrupados por "Origem Lead" em vez de descartados — dá visão do
- * mix de canais, não só do desempenho pago. Não inclui custo/ROI: a conta
- * não tem valor (`price`) nem investimento de anúncio registrados na Kommo.
+ * rastreamento nativos da Kommo (UTM). Cobre só tráfego pago identificado por
+ * `utm_campaign` — leads sem essa origem não entram no relatório: o único
+ * outro sinal de origem disponível ("Origem Lead") é preenchido manualmente e
+ * sem confiabilidade garantida, então não é usado aqui. Não inclui custo/ROI:
+ * a conta não tem valor (`price`) nem investimento de anúncio registrados na Kommo.
  */
 export function buildMarketingReport(
   leads: KommoLead[],
@@ -877,34 +871,21 @@ export function buildMarketingReport(
 ): MarketingReport {
   const sourceFieldId = findLeadFieldByCode(customFields, UTM_SOURCE_CODE);
   const campaignFieldId = findLeadFieldByCode(customFields, UTM_CAMPAIGN_CODE);
-  const origemFieldId = findLeadFieldId(customFields, ORIGEM_LEAD_FIELD_NAME);
 
   const totalLeads = leads.length;
   const trackedLeads = leads.filter((l) => fieldTextValue(l, sourceFieldId) !== null).length;
 
   const byCampaign = new Map<string, KommoLead[]>();
-  const byOtherSource = new Map<string, KommoLead[]>();
-
   for (const lead of leads) {
     const campaign = fieldTextValue(lead, campaignFieldId);
-    if (campaign) {
-      const list = byCampaign.get(campaign) ?? [];
-      list.push(lead);
-      byCampaign.set(campaign, list);
-      continue;
-    }
-    const origem = fieldTextValue(lead, origemFieldId) ?? NO_SOURCE_LABEL;
-    const list = byOtherSource.get(origem) ?? [];
+    if (!campaign) continue;
+    const list = byCampaign.get(campaign) ?? [];
     list.push(lead);
-    byOtherSource.set(origem, list);
+    byCampaign.set(campaign, list);
   }
 
   const campaigns = Array.from(byCampaign.entries())
     .map(([name, groupLeads]) => buildSourceRow(name, name, name, groupLeads, statusTypeMap))
-    .sort((a, b) => b.totalLeads - a.totalLeads);
-
-  const otherSources = Array.from(byOtherSource.entries())
-    .map(([name, groupLeads]) => buildSourceRow(name, name, null, groupLeads, statusTypeMap))
     .sort((a, b) => b.totalLeads - a.totalLeads);
 
   const topCampaign = campaigns[0] ?? null;
@@ -912,7 +893,7 @@ export function buildMarketingReport(
   const bestConversionCampaign =
     eligible.length > 0 ? eligible.reduce((best, c) => (c.wonRate > best.wonRate ? c : best)) : null;
 
-  return { totalLeads, trackedLeads, trackedShare: totalLeads > 0 ? trackedLeads / totalLeads : 0, campaigns, otherSources, topCampaign, bestConversionCampaign };
+  return { totalLeads, trackedLeads, trackedShare: totalLeads > 0 ? trackedLeads / totalLeads : 0, campaigns, topCampaign, bestConversionCampaign };
 }
 
 /** Criativos (`utm_content`) de uma campanha específica, para a subpágina de detalhamento. */

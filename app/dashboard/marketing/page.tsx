@@ -102,24 +102,6 @@ export default async function MarketingPage({
           ]}
         />
       </div>
-
-      <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-        <h2 className="mb-1 font-medium text-[var(--text-primary)]">Outras origens</h2>
-        <p className="mb-4 text-sm text-[var(--text-secondary)]">
-          Leads sem campanha paga identificada — indicação, já cliente, orgânico, ou sem origem informada.
-        </p>
-        <Table
-          keyFor={(r) => r.key}
-          rows={report.otherSources}
-          columns={[
-            { header: "Origem", cell: (r) => r.name },
-            { header: "Leads", cell: (r) => formatNumber(r.totalLeads), align: "right" },
-            { header: "Ganhos", cell: (r) => formatNumber(r.wonCount), align: "right" },
-            { header: "Perdidos", cell: (r) => formatNumber(r.lostCount), align: "right" },
-            { header: "Taxa de ganho", cell: (r) => formatPercent(r.wonRate), align: "right" },
-          ]}
-        />
-      </div>
     </div>
   );
 }
