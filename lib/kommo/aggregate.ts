@@ -510,7 +510,13 @@ export interface LeadFunnelStage {
   /** "leads" na 1ª etapa; nas demais, a unidade é o item marcado/vinculado — não o lead. */
   unitLabel: string;
   count: number;
-  /** % sobre a 1ª etapa (Total de Leads Criados). */
+  /**
+   * % sobre a 1ª etapa do seu grupo de unidade. "created" é sua própria base
+   * (sempre 1). As 3 etapas de itens (demand/proposal/contract) são relativas
+   * a "demand" — não a "created" — porque leads e itens marcados/vinculados
+   * têm unidades diferentes (1 lead pode gerar vários itens), então comparar
+   * itens contra a contagem de leads produzia percentuais sem sentido.
+   */
   shareOfTotal: number;
   /** % sobre a contagem da etapa anterior. null na 1ª etapa. */
   conversionFromPrevious: number | null;
@@ -564,14 +570,15 @@ export function buildLeadPerformanceFunnel(
 
   const raw: { key: LeadFunnelStageKey; label: string; unitLabel: string; count: number }[] = [
     { key: "created", label: "Total de Leads Criados", unitLabel: "leads", count: totalLeadsCreated },
-    { key: "demand", label: "Identificação de Demanda", unitLabel: "serviços marcados", count: demandCount },
+    { key: "demand", label: "Demandas Identificadas", unitLabel: "serviços marcados", count: demandCount },
     { key: "proposal", label: "Propostas Enviadas", unitLabel: "propostas marcadas", count: proposalCount },
     { key: "contract", label: "Contratos Efetivados", unitLabel: "produtos vinculados", count: contractCount },
   ];
 
   const stages: LeadFunnelStage[] = raw.map((stage, i) => ({
     ...stage,
-    shareOfTotal: totalLeadsCreated > 0 ? stage.count / totalLeadsCreated : 0,
+    // "created" é sua própria base; as demais são relativas a "demand" (índice 1) — ver LeadFunnelStage.shareOfTotal.
+    shareOfTotal: i === 0 ? 1 : demandCount > 0 ? stage.count / demandCount : 0,
     conversionFromPrevious: i === 0 ? null : raw[i - 1].count > 0 ? stage.count / raw[i - 1].count : 0,
   }));
 

@@ -48,7 +48,9 @@ export default async function PerformanceLeadsPage({
             label={stage.label}
             value={formatNumber(stage.count)}
             icon={STAGE_ICONS[i]}
-            hint={i === 0 ? undefined : `${formatPercent(stage.shareOfTotal)} da 1ª etapa`}
+            // "created" (i=0) não tem base para comparar; "demand" (i=1) É a
+            // base das demais etapas — ver LeadFunnelStage.shareOfTotal.
+            hint={i <= 1 ? undefined : `${formatPercent(stage.shareOfTotal)} da 1ª etapa`}
           />
         ))}
         <KpiCard
@@ -61,7 +63,12 @@ export default async function PerformanceLeadsPage({
 
       <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
         <h2 className="mb-4 font-medium text-[var(--text-primary)]">Funil e fluxo</h2>
-        <FunnelFlowChart stages={funnel.stages} />
+        <p className="mb-4 text-sm text-[var(--text-secondary)]">
+          Demandas identificadas, propostas enviadas e contratos efetivados — mesma unidade (itens marcados/vinculados),
+          por isso comparáveis diretamente. &quot;Total de Leads Criados&quot; fica só no card acima: é uma unidade
+          diferente (1 lead pode gerar vários itens) e distorceria a comparação.
+        </p>
+        <FunnelFlowChart stages={funnel.stages.slice(1)} />
       </div>
     </div>
   );
