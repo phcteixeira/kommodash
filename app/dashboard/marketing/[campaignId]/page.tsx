@@ -1,5 +1,5 @@
 import { loadKommoDataset } from "@/lib/kommo/dataset";
-import { buildCampaignCreatives, buildStatusTypeMap } from "@/lib/kommo/aggregate";
+import { buildCampaignCreatives, buildCampaignProductBreakdown, buildStatusTypeMap } from "@/lib/kommo/aggregate";
 import { resolveFunnelRange, toDateInputValue } from "@/lib/date-range";
 import { formatDays, formatNumber, formatPercent } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -24,10 +24,11 @@ export default async function MarketingCampaignDetailPage({
   const campaignName = decodeURIComponent(campaignId);
 
   const { dataset, isDemo, error } = await loadKommoDataset({ createdFrom: from, createdTo: to });
-  const { leads, pipelines, customFields } = dataset;
+  const { leads, pipelines, customFields, catalogElements } = dataset;
 
   const statusTypeMap = buildStatusTypeMap(pipelines);
   const creatives = buildCampaignCreatives(leads, customFields, statusTypeMap, campaignName);
+  const products = buildCampaignProductBreakdown(leads, customFields, catalogElements, campaignName);
   const totalLeads = creatives.reduce((sum, c) => sum + c.totalLeads, 0);
 
   const backQuery = new URLSearchParams();
@@ -55,20 +56,40 @@ export default async function MarketingCampaignDetailPage({
       {isDemo ? <div className="mb-6"><EmptyState variant={error ? "error" : "not-configured"} message={error} /></div> : null}
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+        <h2 className="mb-1 font-medium text-[var(--text-primary)]">Criativos</h2>
+        <p className="mb-4 text-sm text-[var(--text-secondary)]">
+          Conversão medida em contratos (produtos vinculados), não em leads ganhos.
+        </p>
         <Table
           keyFor={(r) => r.key}
           rows={creatives}
           columns={[
             { header: "Criativo", cell: (r) => r.name },
             { header: "Leads", cell: (r) => formatNumber(r.totalLeads), align: "right" },
-            { header: "Ganhos", cell: (r) => formatNumber(r.wonCount), align: "right" },
+            { header: "Contratos", cell: (r) => formatNumber(r.contractCount), align: "right" },
             { header: "Perdidos", cell: (r) => formatNumber(r.lostCount), align: "right" },
-            { header: "Taxa de ganho", cell: (r) => formatPercent(r.wonRate), align: "right" },
+            { header: "Taxa de conversão em contrato", cell: (r) => formatPercent(r.contractRate), align: "right" },
             {
               header: "Ciclo médio",
               cell: (r) => (r.avgLifecycleDays !== null ? formatDays(r.avgLifecycleDays) : "—"),
               align: "right",
             },
+          ]}
+        />
+      </div>
+
+      <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+        <h2 className="mb-1 font-medium text-[var(--text-primary)]">Produtos contratados</h2>
+        <p className="mb-4 text-sm text-[var(--text-secondary)]">
+          Quais serviços cada criativo vendeu — o dado mais relevante desta campanha.
+        </p>
+        <Table
+          keyFor={(r) => r.key}
+          rows={products}
+          columns={[
+            { header: "Criativo", cell: (r) => r.creativeName },
+            { header: "Produto", cell: (r) => r.productName },
+            { header: "Contratos", cell: (r) => formatNumber(r.contractCount), align: "right" },
           ]}
         />
       </div>

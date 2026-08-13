@@ -801,10 +801,16 @@ export interface MarketingSourceRow {
   /** Presente só nas linhas de campanha paga (valor de `utm_campaign`) — usado para linkar o detalhamento por criativo. */
   campaignParam: string | null;
   totalLeads: number;
-  wonCount: number;
+  /**
+   * Nº de produtos (serviços) contratados pelos leads desse grupo — soma de
+   * `catalog_element_ids`, não nº de leads: um lead pode contratar mais de
+   * um serviço. Métrica primária de resultado desta conta — ver CLAUDE.md:
+   * "ganho" só indica que houve conversão, não diz o que foi vendido.
+   */
+  contractCount: number;
+  /** % de leads do grupo com ao menos 1 produto contratado. */
+  contractRate: number;
   lostCount: number;
-  openCount: number;
-  wonRate: number;
   /** Ciclo de vida médio (criação -> fechamento) dos leads fechados desse grupo, em dias. null sem nenhum fechado. */
   avgLifecycleDays: number | null;
 }
@@ -816,8 +822,10 @@ export interface MarketingReport {
   trackedShare: number;
   /** Campanhas pagas (agrupadas por `utm_campaign`), ordenadas por volume. */
   campaigns: MarketingSourceRow[];
+  /** Soma de `contractCount` de todas as campanhas — contratos atribuíveis a tráfego pago no período. */
+  totalContracts: number;
   topCampaign: MarketingSourceRow | null;
-  /** Maior taxa de ganho entre campanhas com volume mínimo (evita destacar uma campanha de 1-2 leads por acaso). */
+  /** Maior taxa de conversão em contrato entre campanhas com volume mínimo (evita destacar uma campanha de 1-2 leads por acaso). */
   bestConversionCampaign: MarketingSourceRow | null;
 }
 
@@ -830,13 +838,16 @@ function buildSourceRow(
   groupLeads: KommoLead[],
   statusTypeMap: Map<number, PipelineStatusType>
 ): MarketingSourceRow {
-  let wonCount = 0;
   let lostCount = 0;
+  let leadsWithContract = 0;
+  let contractCount = 0;
   const closedDurationsDays: number[] = [];
   for (const lead of groupLeads) {
     const type = statusTypeMap.get(lead.status_id) ?? "regular";
-    if (type === "won") wonCount += 1;
-    else if (type === "lost") lostCount += 1;
+    if (type === "lost") lostCount += 1;
+    const productCount = lead.catalog_element_ids?.length ?? 0;
+    if (productCount > 0) leadsWithContract += 1;
+    contractCount += productCount;
     if (lead.closed_at !== null) closedDurationsDays.push((lead.closed_at - lead.created_at) / 86400);
   }
   const totalLeads = groupLeads.length;
@@ -845,10 +856,9 @@ function buildSourceRow(
     name,
     campaignParam,
     totalLeads,
-    wonCount,
+    contractCount,
+    contractRate: totalLeads > 0 ? leadsWithContract / totalLeads : 0,
     lostCount,
-    openCount: totalLeads - wonCount - lostCount,
-    wonRate: totalLeads > 0 ? wonCount / totalLeads : 0,
     avgLifecycleDays:
       closedDurationsDays.length > 0
         ? closedDurationsDays.reduce((sum, d) => sum + d, 0) / closedDurationsDays.length
@@ -861,8 +871,10 @@ function buildSourceRow(
  * rastreamento nativos da Kommo (UTM). Cobre só tráfego pago identificado por
  * `utm_campaign` — leads sem essa origem não entram no relatório: o único
  * outro sinal de origem disponível ("Origem Lead") é preenchido manualmente e
- * sem confiabilidade garantida, então não é usado aqui. Não inclui custo/ROI:
- * a conta não tem valor (`price`) nem investimento de anúncio registrados na Kommo.
+ * sem confiabilidade garantida, então não é usado aqui. Conversão é medida em
+ * contratos (produtos vinculados), não em "ganho" — ver CLAUDE.md. Não inclui
+ * custo/ROI: a conta não tem valor (`price`) nem investimento de anúncio
+ * registrados na Kommo.
  */
 export function buildMarketingReport(
   leads: KommoLead[],
@@ -888,12 +900,21 @@ export function buildMarketingReport(
     .map(([name, groupLeads]) => buildSourceRow(name, name, name, groupLeads, statusTypeMap))
     .sort((a, b) => b.totalLeads - a.totalLeads);
 
+  const totalContracts = campaigns.reduce((sum, c) => sum + c.contractCount, 0);
   const topCampaign = campaigns[0] ?? null;
   const eligible = campaigns.filter((c) => c.totalLeads >= MIN_SAMPLE_FOR_BEST_CONVERSION);
   const bestConversionCampaign =
-    eligible.length > 0 ? eligible.reduce((best, c) => (c.wonRate > best.wonRate ? c : best)) : null;
+    eligible.length > 0 ? eligible.reduce((best, c) => (c.contractRate > best.contractRate ? c : best)) : null;
 
-  return { totalLeads, trackedLeads, trackedShare: totalLeads > 0 ? trackedLeads / totalLeads : 0, campaigns, topCampaign, bestConversionCampaign };
+  return {
+    totalLeads,
+    trackedLeads,
+    trackedShare: totalLeads > 0 ? trackedLeads / totalLeads : 0,
+    campaigns,
+    totalContracts,
+    topCampaign,
+    bestConversionCampaign,
+  };
 }
 
 /** Criativos (`utm_content`) de uma campanha específica, para a subpágina de detalhamento. */
@@ -919,4 +940,45 @@ export function buildCampaignCreatives(
   return Array.from(byContent.entries())
     .map(([name, groupLeads]) => buildSourceRow(name, name, null, groupLeads, statusTypeMap))
     .sort((a, b) => b.totalLeads - a.totalLeads);
+}
+
+export interface CampaignProductRow {
+  key: string;
+  creativeName: string;
+  productName: string;
+  contractCount: number;
+}
+
+/**
+ * Produtos (serviços) contratados por leads de uma campanha, quebrado por
+ * criativo — "esse anúncio específico traz cliente pra qual serviço".
+ * Ordenado do produto mais contratado para o menos, dentro de cada criativo.
+ */
+export function buildCampaignProductBreakdown(
+  leads: KommoLead[],
+  customFields: KommoCustomField[],
+  catalogElements: KommoCatalogElement[],
+  campaignName: string
+): CampaignProductRow[] {
+  const campaignFieldId = findLeadFieldByCode(customFields, UTM_CAMPAIGN_CODE);
+  const contentFieldId = findLeadFieldByCode(customFields, UTM_CONTENT_CODE);
+  const productNameById = new Map(catalogElements.map((e) => [e.id, e.name]));
+
+  const leadsInCampaign = leads.filter((l) => fieldTextValue(l, campaignFieldId) === campaignName);
+
+  const rowByKey = new Map<string, CampaignProductRow>();
+  for (const lead of leadsInCampaign) {
+    const creativeName = fieldTextValue(lead, contentFieldId) ?? "Sem criativo identificado";
+    for (const productId of lead.catalog_element_ids ?? []) {
+      const productName = productNameById.get(productId) ?? `Produto ${productId}`;
+      const key = `${creativeName}::${productId}`;
+      const row = rowByKey.get(key) ?? { key, creativeName, productName, contractCount: 0 };
+      row.contractCount += 1;
+      rowByKey.set(key, row);
+    }
+  }
+
+  return Array.from(rowByKey.values()).sort(
+    (a, b) => a.creativeName.localeCompare(b.creativeName) || b.contractCount - a.contractCount
+  );
 }

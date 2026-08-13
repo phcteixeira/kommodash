@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { Table } from "@/components/ui/Table";
 import { LinkButton } from "@/components/ui/LinkButton";
-import { ChevronRight, Megaphone, Percent, Target, TrendingUp } from "lucide-react";
+import { ChevronRight, FileSignature, Megaphone, Percent, Target, TrendingUp } from "lucide-react";
 
 export default async function MarketingPage({
   searchParams,
@@ -45,13 +45,19 @@ export default async function MarketingPage({
         currentTo={to ? toDateInputValue(to) : ""}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <KpiCard label="Leads no período" value={formatNumber(report.totalLeads)} icon={Target} />
         <KpiCard
-          label="Com origem rastreada"
+          label="Leads de Tráfego Pago"
           value={formatPercent(report.trackedShare)}
           icon={Percent}
           hint={`${formatNumber(report.trackedLeads)} leads via UTM`}
+        />
+        <KpiCard
+          label="Contratos via tráfego pago"
+          value={formatNumber(report.totalContracts)}
+          icon={FileSignature}
+          hint="Produtos contratados por leads de campanha"
         />
         <KpiCard
           label="Campanha com mais leads"
@@ -64,14 +70,15 @@ export default async function MarketingPage({
           value={report.bestConversionCampaign ? truncateText(report.bestConversionCampaign.name) : "—"}
           icon={TrendingUp}
           accent="good"
-          hint={report.bestConversionCampaign ? `${formatPercent(report.bestConversionCampaign.wonRate)} de taxa de ganho` : undefined}
+          hint={report.bestConversionCampaign ? `${formatPercent(report.bestConversionCampaign.contractRate)} de taxa de conversão em contrato` : undefined}
         />
       </div>
 
       <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
         <h2 className="mb-1 font-medium text-[var(--text-primary)]">Desempenho por Campanha</h2>
         <p className="mb-4 text-sm text-[var(--text-secondary)]">
-          Leads com campanha identificada via UTM (hoje, 100% tráfego pago do Facebook Ads nesta conta).
+          Leads com campanha identificada via UTM (hoje, 100% tráfego pago do Facebook Ads nesta conta). Conversão
+          medida em contratos (produtos vinculados) — é o dado que diz o que foi de fato vendido, não só que houve venda.
         </p>
         <Table
           keyFor={(r) => r.key}
@@ -79,9 +86,9 @@ export default async function MarketingPage({
           columns={[
             { header: "Campanha", cell: (r) => r.name },
             { header: "Leads", cell: (r) => formatNumber(r.totalLeads), align: "right" },
-            { header: "Ganhos", cell: (r) => formatNumber(r.wonCount), align: "right" },
+            { header: "Contratos", cell: (r) => formatNumber(r.contractCount), align: "right" },
             { header: "Perdidos", cell: (r) => formatNumber(r.lostCount), align: "right" },
-            { header: "Taxa de ganho", cell: (r) => formatPercent(r.wonRate), align: "right" },
+            { header: "Taxa de conversão em contrato", cell: (r) => formatPercent(r.contractRate), align: "right" },
             {
               header: "Ciclo médio",
               cell: (r) => (r.avgLifecycleDays !== null ? formatDays(r.avgLifecycleDays) : "—"),
