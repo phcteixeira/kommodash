@@ -15,6 +15,12 @@ export function formatDate(unixSeconds: number): string {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(unixSeconds * 1000));
 }
 
+/** Formata uma duração em dias, estilo "20d." — usado no funil (permanência por etapa, ciclo de vida). */
+export function formatDays(days: number): string {
+  if (days < 1) return "<1d.";
+  return `${Math.round(days)}d.`;
+}
+
 /**
  * Formatos de valor que podem ser passados como string de servidor para client
  * components (funções não podem cruzar o limite server -> client).

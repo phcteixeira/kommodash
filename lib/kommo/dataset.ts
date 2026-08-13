@@ -4,6 +4,7 @@ import {
   getCatalogElements,
   getCatalogs,
   getCustomFields,
+  getLeadStatusChangeEvents,
   getLeads,
   getLeadsByIds,
   getLossReasons,
@@ -12,8 +13,8 @@ import {
   getTasks,
   getUsers,
 } from "./api";
-import { getMockDataset, getMockLossReasons, getMockProductLinkEvents } from "./mock-data";
-import type { KommoDataset, KommoLead, KommoLossReason, KommoProductLinkEvent } from "./types";
+import { getMockDataset, getMockLossReasons, getMockProductLinkEvents, getMockStatusChangeEvents } from "./mock-data";
+import type { KommoDataset, KommoLead, KommoLossReason, KommoProductLinkEvent, KommoStatusChangeEvent } from "./types";
 import { KommoApiError } from "./client";
 
 export interface DatasetResult {
@@ -212,5 +213,45 @@ async function fetchLossReasons(): Promise<LossReasonsResult> {
         ? err.message
         : "Não foi possível conectar à API da Kommo. Verifique sua conexão e tente novamente.";
     return { lossReasons: getMockLossReasons(), isDemo: true, error: message };
+  }
+}
+
+export interface FunnelEventsResult {
+  events: KommoStatusChangeEvent[];
+  isDemo: boolean;
+  error: string | null;
+}
+
+// Cache separado (só a página Leads e funil precisa desses eventos) — mesmo
+// padrão de `loadProductLinkEvents`. Sem limite superior: sempre busca até
+// agora, já que a janela desta página é só um `from` (ver `RANGE_PRESETS`).
+const funnelEventsCache = new Map<string, { promise: Promise<FunnelEventsResult>; expiresAt: number }>();
+
+export function loadFunnelEvents(from: Date | undefined): Promise<FunnelEventsResult> {
+  if (!isKommoConfigured()) {
+    return Promise.resolve({ events: getMockStatusChangeEvents(), isDemo: true, error: null });
+  }
+
+  const key = dateKey(from);
+  const cached = funnelEventsCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.promise;
+  }
+
+  const promise = fetchFunnelEvents(from);
+  funnelEventsCache.set(key, { promise, expiresAt: Date.now() + CACHE_TTL_MS });
+  return promise;
+}
+
+async function fetchFunnelEvents(from: Date | undefined): Promise<FunnelEventsResult> {
+  try {
+    const events = await getLeadStatusChangeEvents({ from });
+    return { events, isDemo: false, error: null };
+  } catch (err) {
+    const message =
+      err instanceof KommoApiError
+        ? err.message
+        : "Não foi possível conectar à API da Kommo. Verifique sua conexão e tente novamente.";
+    return { events: getMockStatusChangeEvents(), isDemo: true, error: message };
   }
 }

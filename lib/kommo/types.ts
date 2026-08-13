@@ -122,6 +122,20 @@ export interface KommoProductLinkEvent {
   linkedAt: number; // unix seconds — data em que o produto foi vinculado ao lead
 }
 
+/**
+ * Uma mudança de etapa (status) de um lead, derivada do evento
+ * `lead_status_changed` da API de eventos da Kommo. Base para calcular tempo
+ * de permanência por etapa e taxa de avanço no funil (Leads e funil).
+ */
+export interface KommoStatusChangeEvent {
+  leadId: number;
+  pipelineId: number;
+  /** null quando não há etapa anterior registrada no evento (raro; tratado como o lead tendo entrado direto). */
+  fromStatusId: number | null;
+  toStatusId: number;
+  changedAt: number; // unix seconds
+}
+
 /** Payload agregado usado pelas páginas do dashboard. */
 export interface KommoDataset {
   account: KommoAccount | null;

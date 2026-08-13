@@ -9,6 +9,7 @@ import type {
   KommoLossReason,
   KommoPipeline,
   KommoProductLinkEvent,
+  KommoStatusChangeEvent,
   KommoTask,
   KommoUser,
 } from "./types";
@@ -154,6 +155,49 @@ function buildLeads(): KommoLead[] {
   return leads;
 }
 
+const REGULAR_STATUSES = [...MOCK_PIPELINES[0].statuses]
+  .filter((s) => s.type === "regular")
+  .sort((a, b) => a.sort - b.sort);
+
+/**
+ * Caminho de etapas assumido para um lead, do ponto após a 1ª etapa (entrada
+ * é implícita, via `created_at`) até a etapa/desfecho final já sorteado em
+ * `buildLeads`. Leads fechados são assumidos como tendo passado por todas as
+ * etapas regulares antes do desfecho — suficiente para o funil de demonstração.
+ */
+function statusPathFor(lead: KommoLead): number[] {
+  const finalStatus = MOCK_PIPELINES[0].statuses.find((s) => s.id === lead.status_id);
+  if (!finalStatus) return [];
+  if (finalStatus.type === "regular") {
+    const idx = REGULAR_STATUSES.findIndex((s) => s.id === finalStatus.id);
+    return REGULAR_STATUSES.slice(1, idx + 1).map((s) => s.id); // exclui a 1ª etapa (implícita)
+  }
+  return [...REGULAR_STATUSES.slice(1).map((s) => s.id), finalStatus.id]; // ganho/perdido: passou por todas antes
+}
+
+/** Simula eventos `lead_status_changed`, espaçados uniformemente entre a criação e o desfecho/última atualização do lead. */
+function buildStatusChangeEvents(leads: KommoLead[]): KommoStatusChangeEvent[] {
+  const now = Math.floor(Date.now() / 1000);
+  const events: KommoStatusChangeEvent[] = [];
+  for (const lead of leads) {
+    const path = statusPathFor(lead);
+    if (path.length === 0) continue;
+    const endTime = lead.closed_at ?? lead.updated_at ?? now;
+    const span = Math.max(endTime - lead.created_at, path.length);
+    for (let j = 0; j < path.length; j++) {
+      const at = lead.created_at + Math.round((span * (j + 1)) / (path.length + 1));
+      events.push({
+        leadId: lead.id,
+        pipelineId: MOCK_PIPELINES[0].id,
+        fromStatusId: j === 0 ? REGULAR_STATUSES[0].id : path[j - 1],
+        toStatusId: path[j],
+        changedAt: Math.min(at, endTime),
+      });
+    }
+  }
+  return events;
+}
+
 function buildTasks(): KommoTask[] {
   const tasks: KommoTask[] = [];
   const types: KommoTask["task_type_id"][] = [1, 2, 3];
@@ -266,6 +310,7 @@ const MOCK_ACCOUNT: KommoAccount = {
 const MOCK_LEADS = buildLeads();
 const MOCK_TASKS = buildTasks();
 const MOCK_PRODUCT_LINK_EVENTS = buildProductLinkEvents(MOCK_LEADS);
+const MOCK_STATUS_CHANGE_EVENTS = buildStatusChangeEvents(MOCK_LEADS);
 
 export function getMockDataset(): KommoDataset {
   return {
@@ -282,6 +327,10 @@ export function getMockDataset(): KommoDataset {
 
 export function getMockProductLinkEvents(): KommoProductLinkEvent[] {
   return MOCK_PRODUCT_LINK_EVENTS;
+}
+
+export function getMockStatusChangeEvents(): KommoStatusChangeEvent[] {
+  return MOCK_STATUS_CHANGE_EVENTS;
 }
 
 export function getMockLossReasons(): KommoLossReason[] {

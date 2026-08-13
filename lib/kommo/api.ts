@@ -9,6 +9,7 @@ import type {
   KommoPipeline,
   KommoPipelineStatus,
   KommoProductLinkEvent,
+  KommoStatusChangeEvent,
   KommoTask,
   KommoUser,
 } from "./types";
@@ -17,12 +18,15 @@ import type {
 const WON_STATUS_ID = 142;
 const LOST_STATUS_ID = 143;
 
-function normalizeStatusType(raw: {
-  id: number;
-  type?: number;
-}): "regular" | "won" | "lost" {
-  if (raw.type === 1) return "won";
-  if (raw.type === 2) return "lost";
+/**
+ * `type` NÃO indica ganho/perda — em contas reais o valor 1 marca a etapa de
+ * entrada "não editável" (a 1ª coluna de todo pipeline, ex. "Etapa de leads
+ * de entrada"), confirmado direto na API. Um código anterior tratava
+ * `type === 1` como "won", o que classificava incorretamente TODO lead novo,
+ * ainda não trabalhado, como ganho (inflava faturamento/taxa de vitória em
+ * Vendedores e Visão geral). Ganho/perda só é confiável pelos IDs fixos.
+ */
+function normalizeStatusType(raw: { id: number }): "regular" | "won" | "lost" {
   if (raw.id === WON_STATUS_ID) return "won";
   if (raw.id === LOST_STATUS_ID) return "lost";
   return "regular";
@@ -219,6 +223,49 @@ export async function getProductLinkEvents(filter: EventDateFilter = {}): Promis
     const link = event.value_after?.[0]?.link?.entity;
     if (!link || link.type !== false) continue;
     events.push({ leadId: event.entity_id, catalogElementId: link.id, linkedAt: event.created_at });
+  }
+  return events;
+}
+
+interface RawStatusChangeEvent {
+  entity_id: number;
+  created_at: number;
+  value_after?: { lead_status?: { id: number; pipeline_id: number } }[];
+  value_before?: { lead_status?: { id: number; pipeline_id: number } }[];
+}
+
+/**
+ * Busca eventos `lead_status_changed` — mudança de etapa de um lead — para
+ * calcular tempo médio de permanência por etapa e taxa de avanço no funil
+ * (página Leads e funil). Confirmado contra uma conta real: `value_after[0]`
+ * e `value_before[0]` trazem `lead_status: { id, pipeline_id }`;
+ * `value_before` pode faltar (ex.: 1ª mudança de um lead recém-criado).
+ */
+export async function getLeadStatusChangeEvents(filter: EventDateFilter = {}): Promise<KommoStatusChangeEvent[]> {
+  const params = new URLSearchParams();
+  params.set("filter[type][]", "lead_status_changed");
+  if (filter.from) {
+    params.set("filter[created_at][from]", String(Math.floor(filter.from.getTime() / 1000)));
+  }
+  if (filter.to) {
+    params.set("filter[created_at][to]", String(Math.floor(filter.to.getTime() / 1000)));
+  }
+  const path = `/events?${params.toString()}`;
+
+  const raw = await kommoFetchAllPages<"events", RawStatusChangeEvent>(path, "events");
+
+  const events: KommoStatusChangeEvent[] = [];
+  for (const event of raw) {
+    const after = event.value_after?.[0]?.lead_status;
+    if (!after) continue;
+    const before = event.value_before?.[0]?.lead_status;
+    events.push({
+      leadId: event.entity_id,
+      pipelineId: after.pipeline_id,
+      fromStatusId: before?.id ?? null,
+      toStatusId: after.id,
+      changedAt: event.created_at,
+    });
   }
   return events;
 }

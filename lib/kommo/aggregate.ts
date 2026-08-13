@@ -8,6 +8,7 @@ import type {
   KommoPipeline,
   KommoPipelineStatus,
   KommoProductLinkEvent,
+  KommoStatusChangeEvent,
   KommoTask,
   KommoUser,
   PipelineStatusType,
@@ -586,5 +587,179 @@ export function buildLeadPerformanceFunnel(
     stages,
     totalLeadsCreated,
     overallConversionRate: totalLeadsCreated > 0 ? contractCount / totalLeadsCreated : 0,
+  };
+}
+
+// ---------- Leads e funil (taxa de avanço e permanência por etapa) ----------
+
+export type FunnelStatusFilter = "all" | "active" | "closed";
+
+export interface FunnelStageRow {
+  statusId: number;
+  name: string;
+  type: PipelineStatusType;
+  /** Quantos leads (do conjunto filtrado) já alcançaram essa etapa em algum momento — não só os que estão parados nela agora. */
+  reachedCount: number;
+  /** % sobre a 1ª etapa (sempre 100% por definição). */
+  shareOfFirstStage: number;
+  /** % sobre a contagem da etapa anterior. null na 1ª etapa. */
+  conversionFromPrevious: number | null;
+  /** Dias médios que os leads passam NA ETAPA ANTERIOR antes de sair dela. null na 1ª etapa ou sem permanências completas registradas. */
+  avgDaysInPreviousStage: number | null;
+}
+
+export interface FunnelBottleneck {
+  biggestDrop: { stageName: string; dropRate: number } | null;
+  longestDwell: { stageName: string; avgDays: number } | null;
+}
+
+export interface FunnelConversionReport {
+  pipelineId: number;
+  pipelineName: string;
+  /** Etapas regulares + "ganho", em ordem de sort — "perdido" fica fora (ver `lost`, motivo no comentário de `buildFunnelConversion`). */
+  stages: FunnelStageRow[];
+  totalLeadsInScope: number;
+  lost: { count: number; shareOfFirstStage: number };
+  /** Ciclo de vida médio (criação -> fechamento) dos leads fechados (ganhos ou perdidos) do conjunto filtrado, em dias. null sem nenhum fechado. */
+  avgLifecycleDays: number | null;
+  bottleneck: FunnelBottleneck;
+}
+
+/**
+ * Taxa de avanço e tempo de permanência por etapa do funil, a partir do
+ * histórico real de mudanças de status (`lead_status_changed`) — não apenas
+ * do retrato atual (quantos leads estão parados em cada etapa agora).
+ *
+ * - "Alcançou a etapa": o lead teve, em algum momento, um evento levando-o
+ *   para aquela etapa (ou é a 1ª etapa, onde todo lead do conjunto entra por
+ *   definição). Um lead que avançou e voltou continua contando uma vez.
+ * - "Permanência": para cada trecho contínuo em uma etapa (chegada -> saída),
+ *   a duração conta para a média daquela etapa. Só permanências COMPLETAS
+ *   entram na média (o lead já saiu de lá) — a etapa atual de um lead ainda
+ *   aberto fica de fora, pra não subestimar a média com dado incompleto.
+ * - "Perdido" fica separado da sequência principal (não é uma etapa
+ *   sequencial: um lead pode ser perdido a partir de qualquer etapa regular).
+ * - Eventos de outro pipeline (o lead migrou e voltou) são ignorados — uma
+ *   simplificação: casos assim ficam com a permanência da etapa anterior
+ *   à migração superestimada, mas são raros nesta conta.
+ */
+export function buildFunnelConversion(
+  leads: KommoLead[],
+  events: KommoStatusChangeEvent[],
+  pipeline: KommoPipeline,
+  statusFilter: FunnelStatusFilter,
+  createdFrom?: Date
+): FunnelConversionReport {
+  const fromSec = createdFrom ? Math.floor(createdFrom.getTime() / 1000) : null;
+  const localTypeById = new Map(pipeline.statuses.map((s) => [s.id, s.type]));
+
+  const leadsInScope = leads.filter((l) => {
+    if (l.pipeline_id !== pipeline.id) return false;
+    if (fromSec !== null && l.created_at < fromSec) return false;
+    const type = localTypeById.get(l.status_id) ?? "regular";
+    if (statusFilter === "active") return type === "regular";
+    if (statusFilter === "closed") return type === "won" || type === "lost";
+    return true;
+  });
+  const leadIdsInScope = new Set(leadsInScope.map((l) => l.id));
+  const totalLeadsInScope = leadsInScope.length;
+
+  const sequence = [...pipeline.statuses]
+    .filter((s) => s.type !== "lost")
+    .sort((a, b) => a.sort - b.sort);
+  const firstStageId = sequence[0]?.id;
+
+  // Alcance acumulado: quem chegou a cada etapa (a 1ª etapa é todo mundo, por definição).
+  const reachedByStage = new Map<number, Set<number>>();
+  if (firstStageId !== undefined) reachedByStage.set(firstStageId, new Set(leadIdsInScope));
+
+  // Eventos relevantes: só do pipeline selecionado e de leads no conjunto filtrado, agrupados por lead.
+  const eventsByLead = new Map<number, KommoStatusChangeEvent[]>();
+  for (const event of events) {
+    if (event.pipelineId !== pipeline.id) continue;
+    if (!leadIdsInScope.has(event.leadId)) continue;
+    const list = eventsByLead.get(event.leadId) ?? [];
+    list.push(event);
+    eventsByLead.set(event.leadId, list);
+  }
+  for (const list of eventsByLead.values()) list.sort((a, b) => a.changedAt - b.changedAt);
+
+  // Durações completas (chegada -> próxima mudança) por etapa, para a média de permanência.
+  const durationsByStage = new Map<number, number[]>();
+
+  for (const lead of leadsInScope) {
+    const leadEvents = eventsByLead.get(lead.id) ?? [];
+    // Linha do tempo do lead: entra na 1ª etapa na criação, depois cada mudança de status registrada.
+    const timeline: { stageId: number; at: number }[] =
+      firstStageId !== undefined ? [{ stageId: firstStageId, at: lead.created_at }] : [];
+    for (const event of leadEvents) {
+      timeline.push({ stageId: event.toStatusId, at: event.changedAt });
+      const reached = reachedByStage.get(event.toStatusId) ?? new Set<number>();
+      reached.add(lead.id);
+      reachedByStage.set(event.toStatusId, reached);
+    }
+
+    for (let i = 0; i < timeline.length - 1; i++) {
+      const days = (timeline[i + 1].at - timeline[i].at) / 86400;
+      if (days < 0) continue; // relógio de evento fora de ordem — ignora em vez de distorcer a média
+      const list = durationsByStage.get(timeline[i].stageId) ?? [];
+      list.push(days);
+      durationsByStage.set(timeline[i].stageId, list);
+    }
+    // O último trecho da timeline (etapa atual) fica de fora: permanência ainda em aberto.
+  }
+
+  function avgDays(stageId: number): number | null {
+    const list = durationsByStage.get(stageId);
+    if (!list || list.length === 0) return null;
+    return list.reduce((s, d) => s + d, 0) / list.length;
+  }
+
+  const firstReachedCount = firstStageId !== undefined ? reachedByStage.get(firstStageId)?.size ?? 0 : 0;
+
+  const stages: FunnelStageRow[] = sequence.map((status, i) => {
+    const reachedCount = reachedByStage.get(status.id)?.size ?? 0;
+    const prevReachedCount = i === 0 ? null : reachedByStage.get(sequence[i - 1].id)?.size ?? 0;
+    return {
+      statusId: status.id,
+      name: status.name,
+      type: status.type,
+      reachedCount,
+      shareOfFirstStage: firstReachedCount > 0 ? reachedCount / firstReachedCount : 0,
+      conversionFromPrevious:
+        i === 0 ? null : prevReachedCount && prevReachedCount > 0 ? reachedCount / prevReachedCount : 0,
+      avgDaysInPreviousStage: i === 0 ? null : avgDays(sequence[i - 1].id),
+    };
+  });
+
+  const lostCount = leadsInScope.filter((l) => localTypeById.get(l.status_id) === "lost").length;
+
+  const closedLeads = leadsInScope.filter((l) => l.closed_at !== null);
+  const avgLifecycleDays =
+    closedLeads.length > 0
+      ? closedLeads.reduce((sum, l) => sum + (l.closed_at! - l.created_at) / 86400, 0) / closedLeads.length
+      : null;
+
+  let biggestDrop: FunnelBottleneck["biggestDrop"] = null;
+  let longestDwell: FunnelBottleneck["longestDwell"] = null;
+  for (let i = 1; i < stages.length; i++) {
+    const conv = stages[i].conversionFromPrevious;
+    if (conv !== null && (biggestDrop === null || 1 - conv > biggestDrop.dropRate)) {
+      biggestDrop = { stageName: stages[i].name, dropRate: 1 - conv };
+    }
+    const dwell = avgDays(sequence[i - 1].id);
+    if (dwell !== null && (longestDwell === null || dwell > longestDwell.avgDays)) {
+      longestDwell = { stageName: sequence[i - 1].name, avgDays: dwell };
+    }
+  }
+
+  return {
+    pipelineId: pipeline.id,
+    pipelineName: pipeline.name,
+    stages,
+    totalLeadsInScope,
+    lost: { count: lostCount, shareOfFirstStage: firstReachedCount > 0 ? lostCount / firstReachedCount : 0 },
+    avgLifecycleDays,
+    bottleneck: { biggestDrop, longestDwell },
   };
 }
