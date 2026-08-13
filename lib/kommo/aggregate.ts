@@ -774,3 +774,168 @@ export function buildFunnelConversion(
     bottleneck: { biggestDrop, longestDwell },
   };
 }
+
+// ---------- Marketing digital (origem/campanha/criativo dos leads) ----------
+
+// Campos nativos `tracking_data` da Kommo, preenchidos automaticamente pelas
+// integrações de anúncio (não digitados) — identificados pelo `code`, que é
+// estável, ao contrário do nome (que pode ser renomeado na conta).
+const UTM_SOURCE_CODE = "UTM_SOURCE";
+const UTM_CAMPAIGN_CODE = "UTM_CAMPAIGN";
+const UTM_CONTENT_CODE = "UTM_CONTENT";
+
+/** Campo manual de classificação macro (Tráfego/Indicação/Já Cliente/Orgânico) — usado como origem para leads sem UTM. */
+export const ORIGEM_LEAD_FIELD_NAME = "Origem Lead";
+
+export const NO_SOURCE_LABEL = "Sem origem informada";
+
+function findLeadFieldByCode(customFields: KommoCustomField[], code: string): number | null {
+  return customFields.find((f) => f.entity_type === "leads" && f.code === code)?.id ?? null;
+}
+
+function fieldTextValue(lead: KommoLead, fieldId: number | null): string | null {
+  if (fieldId === null) return null;
+  const field = lead.custom_fields_values?.find((v) => v.field_id === fieldId);
+  const raw = field?.values[0]?.value;
+  return raw !== undefined && raw !== null && raw !== "" ? String(raw) : null;
+}
+
+export interface MarketingSourceRow {
+  key: string;
+  name: string;
+  /** Presente só nas linhas de campanha paga (valor de `utm_campaign`) — usado para linkar o detalhamento por criativo. */
+  campaignParam: string | null;
+  totalLeads: number;
+  wonCount: number;
+  lostCount: number;
+  openCount: number;
+  wonRate: number;
+  /** Ciclo de vida médio (criação -> fechamento) dos leads fechados desse grupo, em dias. null sem nenhum fechado. */
+  avgLifecycleDays: number | null;
+}
+
+export interface MarketingReport {
+  totalLeads: number;
+  /** Leads com `utm_source` preenchido — tráfego pago com origem identificada pela integração de anúncio. */
+  trackedLeads: number;
+  trackedShare: number;
+  /** Campanhas pagas (agrupadas por `utm_campaign`), ordenadas por volume. */
+  campaigns: MarketingSourceRow[];
+  /** Origens não pagas — "Origem Lead" (indicação, já cliente, orgânico) ou "Sem origem informada" — ordenadas por volume. */
+  otherSources: MarketingSourceRow[];
+  topCampaign: MarketingSourceRow | null;
+  /** Maior taxa de ganho entre campanhas com volume mínimo (evita destacar uma campanha de 1-2 leads por acaso). */
+  bestConversionCampaign: MarketingSourceRow | null;
+}
+
+const MIN_SAMPLE_FOR_BEST_CONVERSION = 5;
+
+function buildSourceRow(
+  key: string,
+  name: string,
+  campaignParam: string | null,
+  groupLeads: KommoLead[],
+  statusTypeMap: Map<number, PipelineStatusType>
+): MarketingSourceRow {
+  let wonCount = 0;
+  let lostCount = 0;
+  const closedDurationsDays: number[] = [];
+  for (const lead of groupLeads) {
+    const type = statusTypeMap.get(lead.status_id) ?? "regular";
+    if (type === "won") wonCount += 1;
+    else if (type === "lost") lostCount += 1;
+    if (lead.closed_at !== null) closedDurationsDays.push((lead.closed_at - lead.created_at) / 86400);
+  }
+  const totalLeads = groupLeads.length;
+  return {
+    key,
+    name,
+    campaignParam,
+    totalLeads,
+    wonCount,
+    lostCount,
+    openCount: totalLeads - wonCount - lostCount,
+    wonRate: totalLeads > 0 ? wonCount / totalLeads : 0,
+    avgLifecycleDays:
+      closedDurationsDays.length > 0
+        ? closedDurationsDays.reduce((sum, d) => sum + d, 0) / closedDurationsDays.length
+        : null,
+  };
+}
+
+/**
+ * Volume e conversão de leads por campanha/criativo, a partir dos campos de
+ * rastreamento nativos da Kommo (UTM). Leads sem `utm_campaign` (tráfego não
+ * pago) são agrupados por "Origem Lead" em vez de descartados — dá visão do
+ * mix de canais, não só do desempenho pago. Não inclui custo/ROI: a conta
+ * não tem valor (`price`) nem investimento de anúncio registrados na Kommo.
+ */
+export function buildMarketingReport(
+  leads: KommoLead[],
+  customFields: KommoCustomField[],
+  statusTypeMap: Map<number, PipelineStatusType>
+): MarketingReport {
+  const sourceFieldId = findLeadFieldByCode(customFields, UTM_SOURCE_CODE);
+  const campaignFieldId = findLeadFieldByCode(customFields, UTM_CAMPAIGN_CODE);
+  const origemFieldId = findLeadFieldId(customFields, ORIGEM_LEAD_FIELD_NAME);
+
+  const totalLeads = leads.length;
+  const trackedLeads = leads.filter((l) => fieldTextValue(l, sourceFieldId) !== null).length;
+
+  const byCampaign = new Map<string, KommoLead[]>();
+  const byOtherSource = new Map<string, KommoLead[]>();
+
+  for (const lead of leads) {
+    const campaign = fieldTextValue(lead, campaignFieldId);
+    if (campaign) {
+      const list = byCampaign.get(campaign) ?? [];
+      list.push(lead);
+      byCampaign.set(campaign, list);
+      continue;
+    }
+    const origem = fieldTextValue(lead, origemFieldId) ?? NO_SOURCE_LABEL;
+    const list = byOtherSource.get(origem) ?? [];
+    list.push(lead);
+    byOtherSource.set(origem, list);
+  }
+
+  const campaigns = Array.from(byCampaign.entries())
+    .map(([name, groupLeads]) => buildSourceRow(name, name, name, groupLeads, statusTypeMap))
+    .sort((a, b) => b.totalLeads - a.totalLeads);
+
+  const otherSources = Array.from(byOtherSource.entries())
+    .map(([name, groupLeads]) => buildSourceRow(name, name, null, groupLeads, statusTypeMap))
+    .sort((a, b) => b.totalLeads - a.totalLeads);
+
+  const topCampaign = campaigns[0] ?? null;
+  const eligible = campaigns.filter((c) => c.totalLeads >= MIN_SAMPLE_FOR_BEST_CONVERSION);
+  const bestConversionCampaign =
+    eligible.length > 0 ? eligible.reduce((best, c) => (c.wonRate > best.wonRate ? c : best)) : null;
+
+  return { totalLeads, trackedLeads, trackedShare: totalLeads > 0 ? trackedLeads / totalLeads : 0, campaigns, otherSources, topCampaign, bestConversionCampaign };
+}
+
+/** Criativos (`utm_content`) de uma campanha específica, para a subpágina de detalhamento. */
+export function buildCampaignCreatives(
+  leads: KommoLead[],
+  customFields: KommoCustomField[],
+  statusTypeMap: Map<number, PipelineStatusType>,
+  campaignName: string
+): MarketingSourceRow[] {
+  const campaignFieldId = findLeadFieldByCode(customFields, UTM_CAMPAIGN_CODE);
+  const contentFieldId = findLeadFieldByCode(customFields, UTM_CONTENT_CODE);
+
+  const leadsInCampaign = leads.filter((l) => fieldTextValue(l, campaignFieldId) === campaignName);
+
+  const byContent = new Map<string, KommoLead[]>();
+  for (const lead of leadsInCampaign) {
+    const content = fieldTextValue(lead, contentFieldId) ?? "Sem criativo identificado";
+    const list = byContent.get(content) ?? [];
+    list.push(lead);
+    byContent.set(content, list);
+  }
+
+  return Array.from(byContent.entries())
+    .map(([name, groupLeads]) => buildSourceRow(name, name, null, groupLeads, statusTypeMap))
+    .sort((a, b) => b.totalLeads - a.totalLeads);
+}

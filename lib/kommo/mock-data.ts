@@ -13,7 +13,7 @@ import type {
   KommoTask,
   KommoUser,
 } from "./types";
-import { PROPOSTAS_ENVIADAS_FIELD_NAME, SERVICO_FIELD_NAME } from "./aggregate";
+import { ORIGEM_LEAD_FIELD_NAME, PROPOSTAS_ENVIADAS_FIELD_NAME, SERVICO_FIELD_NAME } from "./aggregate";
 
 // PRNG determinístico (mulberry32) para que os dados de demonstração
 // sejam estáveis entre requisições, em vez de mudar a cada refresh.
@@ -126,6 +126,78 @@ function buildLeadCustomFieldsValues(serviceIndexes: number[], proposalIndexes: 
   return values;
 }
 
+// IDs/nomes espelhando os campos nativos `tracking_data` (UTM) + o campo
+// manual "Origem Lead" observados na conta real (ver `buildMarketingReport`).
+const UTM_SOURCE_FIELD_ID = 30;
+const UTM_MEDIUM_FIELD_ID = 31;
+const UTM_CAMPAIGN_FIELD_ID = 32;
+const UTM_CONTENT_FIELD_ID = 33;
+const ORIGEM_LEAD_FIELD_ID = 34;
+const ORIGEM_LEAD_ENUM_IDS = { Indicação: 9300, "Já Cliente": 9301, Orgânico: 9302 } as const;
+
+const MOCK_CAMPAIGNS = ["Campanha Verão | Engajamento", "Institucional | Conversão", "Leads Frios | Lookalike"];
+const MOCK_CREATIVES = [
+  "Anúncio A - Depoimento",
+  "Anúncio B - Oferta especial",
+  "Anúncio C - Vídeo explicativo",
+  "Anúncio D - Antes e depois",
+];
+const MOCK_ORIGENS = Object.keys(ORIGEM_LEAD_ENUM_IDS) as (keyof typeof ORIGEM_LEAD_ENUM_IDS)[];
+
+/**
+ * Mistura de canais espelhando a conta real: ~55% tráfego pago rastreado
+ * (campanha + criativo), ~30% origem classificada manualmente (indicação,
+ * já cliente, orgânico), ~15% sem nenhuma origem registrada.
+ */
+function buildMarketingFieldValues(): KommoCustomFieldValue[] {
+  const roll = rand();
+  if (roll < 0.55) {
+    return [
+      {
+        field_id: UTM_SOURCE_FIELD_ID,
+        field_name: "utm_source",
+        field_code: "UTM_SOURCE",
+        field_type: "tracking_data",
+        values: [{ value: "facebook" }],
+      },
+      {
+        field_id: UTM_MEDIUM_FIELD_ID,
+        field_name: "utm_medium",
+        field_code: "UTM_MEDIUM",
+        field_type: "tracking_data",
+        values: [{ value: "paid_social" }],
+      },
+      {
+        field_id: UTM_CAMPAIGN_FIELD_ID,
+        field_name: "utm_campaign",
+        field_code: "UTM_CAMPAIGN",
+        field_type: "tracking_data",
+        values: [{ value: pick(MOCK_CAMPAIGNS) }],
+      },
+      {
+        field_id: UTM_CONTENT_FIELD_ID,
+        field_name: "utm_content",
+        field_code: "UTM_CONTENT",
+        field_type: "tracking_data",
+        values: [{ value: pick(MOCK_CREATIVES) }],
+      },
+    ];
+  }
+  if (roll < 0.85) {
+    const origem = pick(MOCK_ORIGENS);
+    return [
+      {
+        field_id: ORIGEM_LEAD_FIELD_ID,
+        field_name: ORIGEM_LEAD_FIELD_NAME,
+        field_code: null,
+        field_type: "select",
+        values: [{ value: origem, enum_id: ORIGEM_LEAD_ENUM_IDS[origem] }],
+      },
+    ];
+  }
+  return []; // sem nenhuma origem registrada
+}
+
 function buildLeads(): KommoLead[] {
   const leads: KommoLead[] = [];
   const statuses = MOCK_PIPELINES[0].statuses;
@@ -147,7 +219,7 @@ function buildLeads(): KommoLead[] {
       updated_at: created + Math.floor(rand() * 10) * 86400,
       closed_at: isClosed ? created + Math.floor(rand() * 20) * 86400 : null,
       closest_task_at: null,
-      custom_fields_values: buildLeadCustomFieldsValues(serviceIndexes, proposalIndexes),
+      custom_fields_values: [...buildLeadCustomFieldsValues(serviceIndexes, proposalIndexes), ...buildMarketingFieldValues()],
       catalog_element_ids: pickCatalogElementIds(),
       loss_reason_id: isLost ? pickLossReasonId() : null,
     });
@@ -267,6 +339,18 @@ const MOCK_CUSTOM_FIELDS: KommoCustomField[] = [
     type: "multiselect",
     entity_type: "leads",
     enums: products.map((name, i) => ({ id: PROPOSTAS_ENUM_IDS[i], value: name, sort: i })),
+  },
+  { id: UTM_SOURCE_FIELD_ID, name: "utm_source", code: "UTM_SOURCE", type: "tracking_data", entity_type: "leads" },
+  { id: UTM_MEDIUM_FIELD_ID, name: "utm_medium", code: "UTM_MEDIUM", type: "tracking_data", entity_type: "leads" },
+  { id: UTM_CAMPAIGN_FIELD_ID, name: "utm_campaign", code: "UTM_CAMPAIGN", type: "tracking_data", entity_type: "leads" },
+  { id: UTM_CONTENT_FIELD_ID, name: "utm_content", code: "UTM_CONTENT", type: "tracking_data", entity_type: "leads" },
+  {
+    id: ORIGEM_LEAD_FIELD_ID,
+    name: ORIGEM_LEAD_FIELD_NAME,
+    code: null,
+    type: "select",
+    entity_type: "leads",
+    enums: MOCK_ORIGENS.map((value, i) => ({ id: ORIGEM_LEAD_ENUM_IDS[value], value, sort: i })),
   },
   { id: 3, name: "Telefone", code: "PHONE", type: "multitext", entity_type: "contacts" },
   { id: 4, name: "E-mail", code: "EMAIL", type: "multitext", entity_type: "contacts" },

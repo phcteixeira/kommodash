@@ -22,6 +22,17 @@ export function formatDays(days: number): string {
 }
 
 /**
+ * Trunca um texto livre (ex.: nome de campanha) para caber num rótulo curto,
+ * como o valor de um KpiCard — nomes de campanha de anúncio podem ser bem
+ * longos e quebrar o layout do card. O texto completo continua disponível na
+ * tabela abaixo.
+ */
+export function truncateText(text: string, maxLength = 32): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+/**
  * Formatos de valor que podem ser passados como string de servidor para client
  * components (funções não podem cruzar o limite server -> client).
  */
