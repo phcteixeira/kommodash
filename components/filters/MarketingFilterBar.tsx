@@ -3,50 +3,25 @@
 import { useState } from "react";
 import Link from "next/link";
 import { FUNNEL_RANGE_PRESETS, type FunnelRangeKey } from "@/lib/date-range";
-import type { FunnelStatusFilter } from "@/lib/kommo/aggregate";
 import { filterControlClass, filterLabelClass } from "./PeriodFilterForm";
 
 interface Props {
-  pipelines: { id: number; name: string }[];
-  currentPipelineId: number;
   currentRange: FunnelRangeKey;
   currentFrom: string;
   currentTo: string;
-  currentStatus: FunnelStatusFilter;
 }
 
-/** Formulário GET nativo — mesmo padrão de `PeriodFilterForm`, com o par funil + período (incl. data personalizada) desta página. */
-export function FunnelFilterBar({
-  pipelines,
-  currentPipelineId,
-  currentRange,
-  currentFrom,
-  currentTo,
-  currentStatus,
-}: Props) {
+/** Formulário GET nativo — mesmo padrão de `PeriodFilterForm`/`FunnelFilterBar`, só com o período (incl. data personalizada). */
+export function MarketingFilterBar({ currentRange, currentFrom, currentTo }: Props) {
   // Só para alternar a visibilidade dos campos de data personalizada — não navega.
   const [range, setRange] = useState<FunnelRangeKey>(currentRange);
 
   return (
     <form
       method="get"
-      action="/dashboard/leads"
-      className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
+      action="/dashboard/marketing"
+      className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
     >
-      {/* Preserva a aba (Todos/Ativos/Fechados) ao aplicar funil/período. */}
-      <input type="hidden" name="status" value={currentStatus} />
-
-      <label className={filterLabelClass}>
-        Funil
-        <select name="pipeline" defaultValue={currentPipelineId} className={filterControlClass}>
-          {pipelines.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
       <label className={filterLabelClass}>
         Período
         <select
@@ -84,7 +59,7 @@ export function FunnelFilterBar({
           Aplicar
         </button>
         <Link
-          href="/dashboard/leads"
+          href="/dashboard/marketing"
           className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-black/5"
         >
           Limpar filtro

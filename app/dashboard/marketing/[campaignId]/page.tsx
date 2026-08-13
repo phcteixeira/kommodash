@@ -1,6 +1,6 @@
 import { loadKommoDataset } from "@/lib/kommo/dataset";
 import { buildCampaignCreatives, buildStatusTypeMap } from "@/lib/kommo/aggregate";
-import { resolveRange } from "@/lib/date-range";
+import { resolveFunnelRange, toDateInputValue } from "@/lib/date-range";
 import { formatDays, formatNumber, formatPercent } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -13,17 +13,17 @@ export default async function MarketingCampaignDetailPage({
   searchParams,
 }: {
   params: Promise<{ campaignId: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string }>;
 }) {
   const { campaignId } = await params;
-  const { range } = await searchParams;
-  const { key: rangeKey, from } = resolveRange(range);
+  const { range, from: fromParam, to: toParam } = await searchParams;
+  const { key: rangeKey, from, to } = resolveFunnelRange({ range, from: fromParam, to: toParam });
   // Ao contrário do que se poderia supor, o Next NÃO decodifica automaticamente
   // o segmento dinâmico — `campaignId` chega como veio da URL (ex.:
   // "Campanha%20Ver%C3%A3o..."), então precisa decodificar aqui.
   const campaignName = decodeURIComponent(campaignId);
 
-  const { dataset, isDemo, error } = await loadKommoDataset({ createdFrom: from });
+  const { dataset, isDemo, error } = await loadKommoDataset({ createdFrom: from, createdTo: to });
   const { leads, pipelines, customFields } = dataset;
 
   const statusTypeMap = buildStatusTypeMap(pipelines);
@@ -32,6 +32,10 @@ export default async function MarketingCampaignDetailPage({
 
   const backQuery = new URLSearchParams();
   backQuery.set("range", rangeKey);
+  if (rangeKey === "custom") {
+    if (from) backQuery.set("from", toDateInputValue(from));
+    if (to) backQuery.set("to", toDateInputValue(to));
+  }
 
   return (
     <div>

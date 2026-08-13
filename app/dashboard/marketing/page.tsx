@@ -1,9 +1,9 @@
 import { loadKommoDataset } from "@/lib/kommo/dataset";
 import { buildMarketingReport, buildStatusTypeMap } from "@/lib/kommo/aggregate";
-import { resolveRange } from "@/lib/date-range";
+import { resolveFunnelRange, toDateInputValue } from "@/lib/date-range";
 import { formatDays, formatNumber, formatPercent, truncateText } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { DateRangeFilter } from "@/components/filters/DateRangeFilter";
+import { MarketingFilterBar } from "@/components/filters/MarketingFilterBar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { Table } from "@/components/ui/Table";
@@ -13,11 +13,11 @@ import { ChevronRight, Megaphone, Percent, Target, TrendingUp } from "lucide-rea
 export default async function MarketingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string }>;
 }) {
-  const { range } = await searchParams;
-  const { key: rangeKey, from } = resolveRange(range);
-  const { dataset, isDemo, error } = await loadKommoDataset({ createdFrom: from });
+  const { range, from: fromParam, to: toParam } = await searchParams;
+  const { key: rangeKey, from, to } = resolveFunnelRange({ range, from: fromParam, to: toParam });
+  const { dataset, isDemo, error } = await loadKommoDataset({ createdFrom: from, createdTo: to });
   const { leads, pipelines, customFields } = dataset;
 
   const statusTypeMap = buildStatusTypeMap(pipelines);
@@ -25,16 +25,25 @@ export default async function MarketingPage({
 
   const detailQuery = new URLSearchParams();
   detailQuery.set("range", rangeKey);
+  if (rangeKey === "custom") {
+    if (from) detailQuery.set("from", toDateInputValue(from));
+    if (to) detailQuery.set("to", toDateInputValue(to));
+  }
 
   return (
     <div>
       <PageHeader
         title="Marketing digital"
         description="Volume e conversão de leads por campanha e criativo, a partir dos parâmetros de rastreamento (UTM) da Kommo."
-        filters={<DateRangeFilter current={rangeKey} />}
       />
 
       {isDemo ? <div className="mb-6"><EmptyState variant={error ? "error" : "not-configured"} message={error} /></div> : null}
+
+      <MarketingFilterBar
+        currentRange={rangeKey}
+        currentFrom={from ? toDateInputValue(from) : ""}
+        currentTo={to ? toDateInputValue(to) : ""}
+      />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Leads no período" value={formatNumber(report.totalLeads)} icon={Target} />
@@ -60,7 +69,7 @@ export default async function MarketingPage({
       </div>
 
       <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-        <h2 className="mb-1 font-medium text-[var(--text-primary)]">Campanhas pagas</h2>
+        <h2 className="mb-1 font-medium text-[var(--text-primary)]">Desempenho por Campanha</h2>
         <p className="mb-4 text-sm text-[var(--text-secondary)]">
           Leads com campanha identificada via UTM (hoje, 100% tráfego pago do Facebook Ads nesta conta).
         </p>
