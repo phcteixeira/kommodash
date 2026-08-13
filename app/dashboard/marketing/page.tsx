@@ -77,8 +77,8 @@ export default async function MarketingPage({
       <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
         <h2 className="mb-1 font-medium text-[var(--text-primary)]">Desempenho por Campanha</h2>
         <p className="mb-4 text-sm text-[var(--text-secondary)]">
-          Leads com campanha identificada via UTM (hoje, 100% tráfego pago do Facebook Ads nesta conta). Conversão
-          medida em contratos (produtos vinculados) — é o dado que diz o que foi de fato vendido, não só que houve venda.
+          Leads com campanha identificada via UTM (hoje, 100% tráfego pago do Facebook Ads nesta conta). Duas visões
+          em paralelo: quantos clientes (leads ganhos) e quantos serviços de fato contratados.
         </p>
         <Table
           keyFor={(r) => r.key}
@@ -86,8 +86,10 @@ export default async function MarketingPage({
           columns={[
             { header: "Campanha", cell: (r) => r.name },
             { header: "Leads", cell: (r) => formatNumber(r.totalLeads), align: "right" },
+            { header: "Ganho", cell: (r) => formatNumber(r.wonCount), align: "right" },
             { header: "Contratos", cell: (r) => formatNumber(r.contractCount), align: "right" },
             { header: "Perdidos", cell: (r) => formatNumber(r.lostCount), align: "right" },
+            { header: "Taxa de Conversão de lead", cell: (r) => formatPercent(r.wonRate), align: "right" },
             { header: "Taxa de conversão em contrato", cell: (r) => formatPercent(r.contractRate), align: "right" },
             {
               header: "Ciclo médio",

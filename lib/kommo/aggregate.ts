@@ -801,6 +801,10 @@ export interface MarketingSourceRow {
   /** Presente só nas linhas de campanha paga (valor de `utm_campaign`) — usado para linkar o detalhamento por criativo. */
   campaignParam: string | null;
   totalLeads: number;
+  /** Leads com status "ganho" — quantos clientes, sem dizer o que compraram. Ver `contractCount` para o que foi vendido. */
+  wonCount: number;
+  /** % de leads do grupo com status "ganho". */
+  wonRate: number;
   /**
    * Nº de produtos (serviços) contratados pelos leads desse grupo — soma de
    * `catalog_element_ids`, não nº de leads: um lead pode contratar mais de
@@ -838,13 +842,15 @@ function buildSourceRow(
   groupLeads: KommoLead[],
   statusTypeMap: Map<number, PipelineStatusType>
 ): MarketingSourceRow {
+  let wonCount = 0;
   let lostCount = 0;
   let leadsWithContract = 0;
   let contractCount = 0;
   const closedDurationsDays: number[] = [];
   for (const lead of groupLeads) {
     const type = statusTypeMap.get(lead.status_id) ?? "regular";
-    if (type === "lost") lostCount += 1;
+    if (type === "won") wonCount += 1;
+    else if (type === "lost") lostCount += 1;
     const productCount = lead.catalog_element_ids?.length ?? 0;
     if (productCount > 0) leadsWithContract += 1;
     contractCount += productCount;
@@ -856,6 +862,8 @@ function buildSourceRow(
     name,
     campaignParam,
     totalLeads,
+    wonCount,
+    wonRate: totalLeads > 0 ? wonCount / totalLeads : 0,
     contractCount,
     contractRate: totalLeads > 0 ? leadsWithContract / totalLeads : 0,
     lostCount,
