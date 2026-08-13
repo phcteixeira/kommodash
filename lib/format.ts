@@ -10,6 +10,11 @@ export function formatPercent(value: number): string {
   return new Intl.NumberFormat("pt-BR", { style: "percent", maximumFractionDigits: 1 }).format(value);
 }
 
+/** Formata uma média/razão com até 2 casas decimais, ex.: "1,24" — usado em métricas tipo "contrato por lead". */
+export function formatDecimal(value: number): string {
+  return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value);
+}
+
 /** Formata um timestamp unix (segundos) como data curta, ex.: "12/08/2026". */
 export function formatDate(unixSeconds: number): string {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(unixSeconds * 1000));

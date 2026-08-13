@@ -71,52 +71,42 @@ export function buildFunnel(leads: KommoLead[], pipeline: KommoPipeline): Funnel
   };
 }
 
-// ---------- Desempenho de vendedores ----------
+// ---------- Visão geral (resumo executivo) ----------
 
-export interface SellerPerformance {
-  userId: number;
-  userName: string;
+export interface OverviewSummary {
   totalLeads: number;
+  /** Leads com status "ganho" — indica que houve conversão, não o que foi vendido (ver `contractCount`). */
   wonCount: number;
-  lostCount: number;
-  wonRevenue: number;
-  avgTicket: number;
-  winRate: number;
+  /** % de leads do período com status "ganho". */
+  wonRate: number;
+  /**
+   * Nº de produtos (serviços) contratados pelos leads do período — soma de
+   * `catalog_element_ids`, não nº de leads: um lead pode contratar mais de
+   * um serviço. Métrica primária de resultado desta conta — ver CLAUDE.md.
+   */
+  contractCount: number;
+  /** Contratos ÷ leads do período — quantos serviços em média cada lead gera. */
+  avgContractsPerLead: number;
 }
 
-export function buildSellerPerformance(
+export function buildOverviewSummary(
   leads: KommoLead[],
-  users: KommoUser[],
   statusTypeMap: Map<number, PipelineStatusType>
-): SellerPerformance[] {
-  const byUser = new Map<number, KommoLead[]>();
+): OverviewSummary {
+  let wonCount = 0;
+  let contractCount = 0;
   for (const lead of leads) {
-    const list = byUser.get(lead.responsible_user_id) ?? [];
-    list.push(lead);
-    byUser.set(lead.responsible_user_id, list);
+    if (statusTypeMap.get(lead.status_id) === "won") wonCount += 1;
+    contractCount += lead.catalog_element_ids?.length ?? 0;
   }
-
-  const userNameById = new Map(users.map((u) => [u.id, u.name]));
-
-  return Array.from(byUser.entries())
-    .map(([userId, userLeads]) => {
-      const won = userLeads.filter((l) => statusTypeMap.get(l.status_id) === "won");
-      const lost = userLeads.filter((l) => statusTypeMap.get(l.status_id) === "lost");
-      const wonRevenue = won.reduce((sum, l) => sum + (l.price || 0), 0);
-      const closed = won.length + lost.length;
-
-      return {
-        userId,
-        userName: userNameById.get(userId) ?? `Usuário ${userId}`,
-        totalLeads: userLeads.length,
-        wonCount: won.length,
-        lostCount: lost.length,
-        wonRevenue,
-        avgTicket: won.length > 0 ? wonRevenue / won.length : 0,
-        winRate: closed > 0 ? won.length / closed : 0,
-      };
-    })
-    .sort((a, b) => b.wonRevenue - a.wonRevenue);
+  const totalLeads = leads.length;
+  return {
+    totalLeads,
+    wonCount,
+    wonRate: totalLeads > 0 ? wonCount / totalLeads : 0,
+    contractCount,
+    avgContractsPerLead: totalLeads > 0 ? contractCount / totalLeads : 0,
+  };
 }
 
 // ---------- Atividades e tarefas ----------

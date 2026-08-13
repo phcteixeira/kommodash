@@ -1,10 +1,10 @@
-import { Wallet, Filter, Users as UsersIcon, ListChecks } from "lucide-react";
+import { Filter, ListChecks, FileSignature, Trophy, Target, Percent } from "lucide-react";
 import { loadKommoDataset } from "@/lib/kommo/dataset";
-import { buildStatusTypeMap, buildFunnel, buildSellerPerformance, buildActivitySummary } from "@/lib/kommo/aggregate";
-import { resolveRange } from "@/lib/date-range";
-import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
+import { buildStatusTypeMap, buildFunnel, buildOverviewSummary, buildActivitySummary } from "@/lib/kommo/aggregate";
+import { resolveFunnelRange, toDateInputValue } from "@/lib/date-range";
+import { formatDecimal, formatNumber, formatPercent } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { DateRangeFilter } from "@/components/filters/DateRangeFilter";
+import { OverviewFilterBar } from "@/components/filters/OverviewFilterBar";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DonutChart } from "@/components/charts/DonutChart";
@@ -13,18 +13,17 @@ import { STATUS, CATEGORICAL } from "@/lib/palette";
 export default async function DashboardOverviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string }>;
 }) {
-  const { range } = await searchParams;
-  const { key: rangeKey, from } = resolveRange(range);
-  const { dataset, isDemo, error } = await loadKommoDataset({ createdFrom: from });
+  const { range, from: fromParam, to: toParam } = await searchParams;
+  const { key: rangeKey, from, to } = resolveFunnelRange({ range, from: fromParam, to: toParam });
+  const { dataset, isDemo, error } = await loadKommoDataset({ createdFrom: from, createdTo: to });
   const { leads, pipelines, users, tasks, account } = dataset;
 
   const statusTypeMap = buildStatusTypeMap(pipelines);
   const mainPipeline = pipelines[0];
   const funnel = mainPipeline ? buildFunnel(leads, mainPipeline) : null;
-  const sellers = buildSellerPerformance(leads, users, statusTypeMap);
-  const totalWonRevenue = sellers.reduce((sum, s) => sum + s.wonRevenue, 0);
+  const overview = buildOverviewSummary(leads, statusTypeMap);
   const activities = buildActivitySummary(tasks, users);
   const totalOverdue = activities.reduce((sum, a) => sum + a.overdue, 0);
 
@@ -33,20 +32,31 @@ export default async function DashboardOverviewPage({
       <PageHeader
         title={`Visão geral${account ? ` — ${account.name}` : ""}`}
         description="Resumo dos principais indicadores da sua conta Kommo."
-        filters={<DateRangeFilter current={rangeKey} />}
       />
 
       {isDemo ? <div className="mb-6"><EmptyState variant={error ? "error" : "not-configured"} message={error} /></div> : null}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Leads no período" value={formatNumber(leads.length)} icon={Filter} />
+      <OverviewFilterBar
+        currentRange={rangeKey}
+        currentFrom={from ? toDateInputValue(from) : ""}
+        currentTo={to ? toDateInputValue(to) : ""}
+      />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <KpiCard label="Leads no período" value={formatNumber(overview.totalLeads)} icon={Filter} />
+        <KpiCard label="Leads Ganhos" value={formatNumber(overview.wonCount)} icon={Trophy} accent="good" />
         <KpiCard
-          label="Faturamento (ganhos)"
-          value={formatCurrency(totalWonRevenue, account?.currency)}
-          icon={Wallet}
+          label="Contratos Convertidos"
+          value={formatNumber(overview.contractCount)}
+          icon={FileSignature}
           accent="good"
         />
-        <KpiCard label="Vendedores ativos" value={formatNumber(sellers.length)} icon={UsersIcon} />
+        <KpiCard
+          label="Contrato por Lead (Média)"
+          value={formatDecimal(overview.avgContractsPerLead)}
+          icon={Target}
+        />
+        <KpiCard label="Taxa de Conversão de Lead" value={formatPercent(overview.wonRate)} icon={Percent} />
         <KpiCard
           label="Tarefas atrasadas"
           value={formatNumber(totalOverdue)}
