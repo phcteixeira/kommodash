@@ -1,0 +1,11 @@
+{
+  "widget": {
+    "name": "Botclaude",
+    "short_description": "Agente de IA para respostas automáticas",
+    "description": "Encaminha mensagens recebidas para um servidor externo, que gera a resposta com um modelo de IA e um prompt pré-configurados, e devolve a resposta para o Salesbot enviar de volta ao cliente."
+  },
+  "salesbot": {
+    "handler_name": "Responder com IA (Botclaude)",
+    "webhook_url": "URL do servidor de IA"
+  }
+}
