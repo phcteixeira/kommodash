@@ -14,6 +14,14 @@
     }
   },
   "locations": ["salesbot_designer"],
+  "settings": {
+    "webhook_url": {
+      "name": "settings.webhook_url",
+      "type": "text",
+      "required": false,
+      "default_value": "https://kommodash.vercel.app/api/agent/webhook"
+    }
+  },
   "salesbot_designer": {
     "logo": "/widgets/botclaude/images/logo.png",
     "ai_reply": {
