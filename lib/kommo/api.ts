@@ -6,6 +6,7 @@ import type {
   KommoCustomField,
   KommoLead,
   KommoLossReason,
+  KommoNote,
   KommoPipeline,
   KommoPipelineStatus,
   KommoProductLinkEvent,
@@ -268,4 +269,25 @@ export async function getLeadStatusChangeEvents(filter: EventDateFilter = {}): P
     });
   }
   return events;
+}
+
+/**
+ * Notas da timeline de um lead. Usada pelo agente de IA como memória de
+ * conversa (lib/kommo-agent/memory.ts) — não há endpoint de histórico de
+ * chat acessível pra este canal (ver risco documentado no plano do agente
+ * de IA), então a conversa é reconstruída a partir de notas que o próprio
+ * agente escreve a cada turno.
+ */
+export async function getLeadNotes(leadId: number): Promise<KommoNote[]> {
+  return kommoFetchAllPages<"notes", KommoNote>(`/leads/${leadId}/notes`, "notes");
+}
+
+/** Adiciona uma nota de texto simples (`note_type: "common"`) a um lead.
+ * `entity_id` é obrigatório mesmo no sub-endpoint `/leads/{id}/notes`
+ * (confirmado contra a conta real — sem ele a API retorna 400/erro 226). */
+export async function addLeadNote(leadId: number, text: string): Promise<void> {
+  await kommoFetch(`/leads/${leadId}/notes`, {
+    method: "POST",
+    body: JSON.stringify([{ entity_id: leadId, note_type: "common", params: { text } }]),
+  });
 }

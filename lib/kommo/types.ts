@@ -1,6 +1,16 @@
 // Tipos que cobrem apenas os campos da API v4 da Kommo usados nesta aplicação.
 // Referência: https://developers.kommo.com/reference
 
+/** Nota da timeline de um lead (`/leads/{id}/notes`). Usada pelo agente de
+ * IA como memória de conversa — ver lib/kommo-agent/memory.ts. */
+export interface KommoNote {
+  id: number;
+  entity_id: number;
+  note_type: string;
+  created_at: number;
+  params?: { text?: string };
+}
+
 export interface KommoCustomFieldValue {
   field_id: number;
   field_name: string;
