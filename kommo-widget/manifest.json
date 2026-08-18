@@ -7,7 +7,7 @@
     "interface_version": 2,
     "init_once": true,
     "locale": ["pt", "en"],
-    "installation": false,
+    "installation": true,
     "support": {
       "link": "https://kommodash.vercel.app",
       "email": "pzzamarketing@gmail.com"
