@@ -155,28 +155,36 @@ async function fetchProductLinkEvents(window: { from: Date; to: Date }): Promise
 }
 
 /**
- * Um evento de vínculo pode referenciar um lead criado fora da janela de
- * datas usada para buscar `leads` (ex.: lead antigo que só agora recebeu um
- * produto novo). Essa função completa o mapa de nomes buscando, por ID, só
- * os leads que faltam — em vez de ampliar a busca principal de leads.
+ * Um evento (vínculo de produto, mudança de etapa) pode referenciar um lead
+ * criado fora da janela de datas usada para buscar `leads` (ex.: lead antigo
+ * que só agora recebeu um produto novo, ou avançou de etapa). Essa função
+ * completa o registro buscando, por ID, só os leads que faltam — em vez de
+ * ampliar a busca principal de leads.
  */
+export async function resolveLeadsByIds(baseLeads: KommoLead[], ids: number[]): Promise<Map<number, KommoLead>> {
+  const byId = new Map(baseLeads.map((l) => [l.id, l]));
+  if (!isKommoConfigured()) return byId; // modo demo: leads já cobrem todos os eventos
+
+  const missing = Array.from(new Set(ids)).filter((id) => !byId.has(id));
+  if (missing.length === 0) return byId;
+
+  try {
+    const extra = await getLeadsByIds(missing);
+    for (const lead of extra) byId.set(lead.id, lead);
+  } catch {
+    // Sem sorte: os leads que faltarem ficam de fora do mapa — quem usa
+    // trata a ausência (ex.: nome de fallback "Lead {id}" em buildClosings).
+  }
+  return byId;
+}
+
 export async function resolveLeadNames(
   leads: KommoLead[],
   events: KommoProductLinkEvent[]
 ): Promise<Map<number, string>> {
-  const nameById = new Map(leads.map((l) => [l.id, l.name]));
-  if (!isKommoConfigured()) return nameById; // modo demo: leads já cobrem todos os eventos
-
-  const missing = Array.from(new Set(events.map((e) => e.leadId))).filter((id) => !nameById.has(id));
-  if (missing.length === 0) return nameById;
-
-  try {
-    const extra = await getLeadsByIds(missing);
-    for (const lead of extra) nameById.set(lead.id, lead.name);
-  } catch {
-    // Sem sorte: os leads que faltarem aparecem com o nome de fallback
-    // ("Lead {id}") em buildClosings, em vez de quebrar a página.
-  }
+  const byId = await resolveLeadsByIds(leads, events.map((e) => e.leadId));
+  const nameById = new Map<number, string>();
+  for (const [id, lead] of byId) nameById.set(id, lead.name);
   return nameById;
 }
 

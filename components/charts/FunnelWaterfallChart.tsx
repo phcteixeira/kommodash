@@ -23,7 +23,11 @@ export function FunnelWaterfallChart({ stages, lost }: Props) {
     <div>
       <div className="flex flex-col gap-3">
         {stages.map((stage, i) => {
-          const widthPct = firstCount > 0 ? Math.max(2, (stage.reachedCount / firstCount) * 100) : 0;
+          // Uma etapa pode ter mais leads que a 1ª (ex.: leads antigos que só
+          // passaram por aqui dentro do período) — a % mostrada no texto pode
+          // passar de 100%, mas a barra é limitada a 100% de largura pra não
+          // vazar do contêiner.
+          const widthPct = firstCount > 0 ? Math.min(100, Math.max(2, (stage.reachedCount / firstCount) * 100)) : 0;
           const color = colorForIndex(i, stages.length);
           // Permanência NESSA etapa antes de avançar — vem anexada à etapa SEGUINTE
           // (ver LeadFunnelStage/FunnelStageRow.avgDaysInPreviousStage), por isso o "look-ahead".
@@ -68,7 +72,10 @@ export function FunnelWaterfallChart({ stages, lost }: Props) {
           </span>
           <div
             className="h-8 rounded-l-md"
-            style={{ width: `${firstCount > 0 ? Math.max(2, (lost.count / firstCount) * 100) : 0}%`, background: STATUS.critical }}
+            style={{
+              width: `${firstCount > 0 ? Math.min(100, Math.max(2, (lost.count / firstCount) * 100)) : 0}%`,
+              background: STATUS.critical,
+            }}
             title={`Perdido: ${formatNumber(lost.count)} leads (${formatPercent(lost.shareOfFirstStage)})`}
           />
         </div>

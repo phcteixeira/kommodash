@@ -470,8 +470,6 @@ export function buildLeadPerformanceFunnel(
 
 // ---------- Leads e funil (taxa de avanço e permanência por etapa) ----------
 
-export type FunnelStatusFilter = "all" | "active" | "closed";
-
 export interface FunnelStageRow {
   statusId: number;
   name: string;
@@ -491,99 +489,112 @@ export interface FunnelBottleneck {
   longestDwell: { stageName: string; avgDays: number } | null;
 }
 
-export interface FunnelConversionReport {
+export interface FunnelActivityReport {
   pipelineId: number;
   pipelineName: string;
-  /** Etapas regulares + "ganho", em ordem de sort — "perdido" fica fora (ver `lost`, motivo no comentário de `buildFunnelConversion`). */
+  /** Etapas regulares + "ganho", em ordem de sort — "perdido" fica fora (ver `lostCount`). */
   stages: FunnelStageRow[];
-  totalLeadsInScope: number;
-  lost: { count: number; shareOfFirstStage: number };
-  /** Ciclo de vida médio (criação -> fechamento) dos leads fechados (ganhos ou perdidos) do conjunto filtrado, em dias. null sem nenhum fechado. */
+  /** Leads distintos que passaram a "ganho" DENTRO do período — não pela data de criação. */
+  wonCount: number;
+  /** Leads distintos que passaram a "perdido" DENTRO do período — não pela data de criação. */
+  lostCount: number;
+  /** `created_at` do lead mais recente entre os que tiveram atividade no período (criado ou mudou de etapa). null sem nenhuma atividade. */
+  newestLeadCreatedAt: number | null;
+  /** `created_at` do lead mais antigo entre os que tiveram atividade no período. */
+  oldestLeadCreatedAt: number | null;
+  /** Ciclo de vida médio (criação -> fechamento) só dos leads que ganharam ou perderam DENTRO do período, em dias. null sem nenhum fechamento no período. */
   avgLifecycleDays: number | null;
   bottleneck: FunnelBottleneck;
 }
 
 /**
- * Taxa de avanço e tempo de permanência por etapa do funil, a partir do
- * histórico real de mudanças de status (`lead_status_changed`) — não apenas
- * do retrato atual (quantos leads estão parados em cada etapa agora).
+ * Taxa de avanço e tempo de permanência por etapa do funil, contando quem
+ * teve atividade DENTRO do período — não quem nasceu nele. Complementa (e
+ * substitui, nesta página) uma visão por coorte: lá, um lead criado antes do
+ * período mas que avançou de etapa dentro dele ficava invisível (mesmo tipo
+ * de correção já aplicada na Visão geral — ver `countWonInWindow`).
  *
- * - "Alcançou a etapa": o lead teve, em algum momento, um evento levando-o
- *   para aquela etapa (ou é a 1ª etapa, onde todo lead do conjunto entra por
- *   definição). Um lead que avançou e voltou continua contando uma vez.
- * - "Permanência": para cada trecho contínuo em uma etapa (chegada -> saída),
- *   a duração conta para a média daquela etapa. Só permanências COMPLETAS
- *   entram na média (o lead já saiu de lá) — a etapa atual de um lead ainda
- *   aberto fica de fora, pra não subestimar a média com dado incompleto.
+ * - "Alcançou a etapa": houve um evento levando o lead pra ela DENTRO do
+ *   período (ou o lead foi criado no período — todo lead entra pela 1ª
+ *   etapa ao nascer). Um lead que avançou e voltou continua contando uma vez.
+ * - "Permanência": conta só o trecho entre dois eventos capturados dentro do
+ *   período. Se o lead entrou numa etapa antes do período começar, esse
+ *   primeiro trecho fica de fora (não temos visibilidade dele) — mesmo
+ *   princípio de "só permanências completas/observadas contam" de antes, só
+ *   que agora limitado pela janela em vez de "o lead ainda não fechou".
  * - "Perdido" fica separado da sequência principal (não é uma etapa
  *   sequencial: um lead pode ser perdido a partir de qualquer etapa regular).
- * - Eventos de outro pipeline (o lead migrou e voltou) são ignorados — uma
- *   simplificação: casos assim ficam com a permanência da etapa anterior
- *   à migração superestimada, mas são raros nesta conta.
+ * - Eventos de outro pipeline são ignorados (mesma simplificação de antes).
  */
-export function buildFunnelConversion(
-  leads: KommoLead[],
+export function buildFunnelActivity(
+  leadById: Map<number, KommoLead>,
   events: KommoStatusChangeEvent[],
   pipeline: KommoPipeline,
-  statusFilter: FunnelStatusFilter,
-  createdFrom?: Date,
-  createdTo?: Date
-): FunnelConversionReport {
-  const fromSec = createdFrom ? Math.floor(createdFrom.getTime() / 1000) : null;
-  const toSec = createdTo ? Math.floor(createdTo.getTime() / 1000) : null;
+  window: { from: Date; to: Date }
+): FunnelActivityReport {
+  const fromSec = Math.floor(window.from.getTime() / 1000);
+  const toSec = Math.floor(window.to.getTime() / 1000);
   const localTypeById = new Map(pipeline.statuses.map((s) => [s.id, s.type]));
 
-  // Cohorte do pipeline+período, antes do filtro de aba (Todos os/Ativos/Fechados) — usada para
-  // o ciclo de vida médio, que não deve zerar na aba "Ativos" (leads ativos nunca têm closed_at).
-  const cohortLeads = leads.filter((l) => {
-    if (l.pipeline_id !== pipeline.id) return false;
-    if (fromSec !== null && l.created_at < fromSec) return false;
-    if (toSec !== null && l.created_at > toSec) return false;
-    return true;
-  });
+  const pipelineEvents = events.filter(
+    (e) => e.pipelineId === pipeline.id && e.changedAt >= fromSec && e.changedAt <= toSec
+  );
 
-  const leadsInScope = cohortLeads.filter((l) => {
-    const type = localTypeById.get(l.status_id) ?? "regular";
-    if (statusFilter === "active") return type === "regular";
-    if (statusFilter === "closed") return type === "won" || type === "lost";
-    return true;
-  });
-  const leadIdsInScope = new Set(leadsInScope.map((l) => l.id));
-  const totalLeadsInScope = leadsInScope.length;
-
-  const sequence = [...pipeline.statuses]
-    .filter((s) => s.type !== "lost")
-    .sort((a, b) => a.sort - b.sort);
+  const sequence = [...pipeline.statuses].filter((s) => s.type !== "lost").sort((a, b) => a.sort - b.sort);
   const firstStageId = sequence[0]?.id;
 
-  // Alcance acumulado: quem chegou a cada etapa (a 1ª etapa é todo mundo, por definição).
-  const reachedByStage = new Map<number, Set<number>>();
-  if (firstStageId !== undefined) reachedByStage.set(firstStageId, new Set(leadIdsInScope));
+  // Leads "ativos no período": criados na janela (entraram pela 1ª etapa)
+  // OU com pelo menos um evento de mudança de etapa na janela — mesmo um
+  // lead criado bem antes.
+  const activeLeadIds = new Set<number>();
+  for (const lead of leadById.values()) {
+    if (lead.pipeline_id === pipeline.id && lead.created_at >= fromSec && lead.created_at <= toSec) {
+      activeLeadIds.add(lead.id);
+    }
+  }
+  for (const event of pipelineEvents) activeLeadIds.add(event.leadId);
 
-  // Eventos relevantes: só do pipeline selecionado e de leads no conjunto filtrado, agrupados por lead.
   const eventsByLead = new Map<number, KommoStatusChangeEvent[]>();
-  for (const event of events) {
-    if (event.pipelineId !== pipeline.id) continue;
-    if (!leadIdsInScope.has(event.leadId)) continue;
+  for (const event of pipelineEvents) {
     const list = eventsByLead.get(event.leadId) ?? [];
     list.push(event);
     eventsByLead.set(event.leadId, list);
   }
   for (const list of eventsByLead.values()) list.sort((a, b) => a.changedAt - b.changedAt);
 
-  // Durações completas (chegada -> próxima mudança) por etapa, para a média de permanência.
+  const reachedByStage = new Map<number, Set<number>>();
   const durationsByStage = new Map<number, number[]>();
+  const wonLeadIds = new Set<number>();
+  const lostLeadIds = new Set<number>();
+  let oldestLeadCreatedAt: number | null = null;
+  let newestLeadCreatedAt: number | null = null;
 
-  for (const lead of leadsInScope) {
-    const leadEvents = eventsByLead.get(lead.id) ?? [];
-    // Linha do tempo do lead: entra na 1ª etapa na criação, depois cada mudança de status registrada.
-    const timeline: { stageId: number; at: number }[] =
-      firstStageId !== undefined ? [{ stageId: firstStageId, at: lead.created_at }] : [];
+  for (const leadId of activeLeadIds) {
+    const lead = leadById.get(leadId);
+    const leadEvents = eventsByLead.get(leadId) ?? [];
+    const createdInWindow = !!lead && lead.created_at >= fromSec && lead.created_at <= toSec;
+
+    if (lead) {
+      if (oldestLeadCreatedAt === null || lead.created_at < oldestLeadCreatedAt) oldestLeadCreatedAt = lead.created_at;
+      if (newestLeadCreatedAt === null || lead.created_at > newestLeadCreatedAt) newestLeadCreatedAt = lead.created_at;
+    }
+
+    const timeline: { stageId: number; at: number }[] = [];
+    if (createdInWindow && firstStageId !== undefined) {
+      timeline.push({ stageId: firstStageId, at: lead!.created_at });
+      const reached = reachedByStage.get(firstStageId) ?? new Set<number>();
+      reached.add(leadId);
+      reachedByStage.set(firstStageId, reached);
+    }
     for (const event of leadEvents) {
       timeline.push({ stageId: event.toStatusId, at: event.changedAt });
       const reached = reachedByStage.get(event.toStatusId) ?? new Set<number>();
-      reached.add(lead.id);
+      reached.add(leadId);
       reachedByStage.set(event.toStatusId, reached);
+
+      const type = localTypeById.get(event.toStatusId);
+      if (type === "won") wonLeadIds.add(leadId);
+      if (type === "lost") lostLeadIds.add(leadId);
     }
 
     for (let i = 0; i < timeline.length - 1; i++) {
@@ -593,7 +604,6 @@ export function buildFunnelConversion(
       list.push(days);
       durationsByStage.set(timeline[i].stageId, list);
     }
-    // O último trecho da timeline (etapa atual) fica de fora: permanência ainda em aberto.
   }
 
   function avgDays(stageId: number): number | null {
@@ -619,15 +629,15 @@ export function buildFunnelConversion(
     };
   });
 
-  const lostCount = leadsInScope.filter((l) => localTypeById.get(l.status_id) === "lost").length;
-
-  // Da cohorte inteira (não de `leadsInScope`) — na aba "Ativos" não haveria nenhum lead fechado
-  // para calcular a média, mas o ciclo de vida típico do funil continua sendo uma informação útil ali.
-  const closedLeads = cohortLeads.filter((l) => l.closed_at !== null);
-  const avgLifecycleDays =
-    closedLeads.length > 0
-      ? closedLeads.reduce((sum, l) => sum + (l.closed_at! - l.created_at) / 86400, 0) / closedLeads.length
-      : null;
+  // Ciclo de vida médio: só dos leads que fecharam (ganho ou perdido) DENTRO
+  // da janela — não de todo mundo com closed_at preenchido, pra não misturar
+  // fechamentos de outros períodos.
+  const lifecycles: number[] = [];
+  for (const leadId of new Set([...wonLeadIds, ...lostLeadIds])) {
+    const lead = leadById.get(leadId);
+    if (lead?.closed_at != null) lifecycles.push((lead.closed_at - lead.created_at) / 86400);
+  }
+  const avgLifecycleDays = lifecycles.length > 0 ? lifecycles.reduce((s, d) => s + d, 0) / lifecycles.length : null;
 
   let biggestDrop: FunnelBottleneck["biggestDrop"] = null;
   let longestDwell: FunnelBottleneck["longestDwell"] = null;
@@ -646,8 +656,10 @@ export function buildFunnelConversion(
     pipelineId: pipeline.id,
     pipelineName: pipeline.name,
     stages,
-    totalLeadsInScope,
-    lost: { count: lostCount, shareOfFirstStage: firstReachedCount > 0 ? lostCount / firstReachedCount : 0 },
+    wonCount: wonLeadIds.size,
+    lostCount: lostLeadIds.size,
+    newestLeadCreatedAt,
+    oldestLeadCreatedAt,
     avgLifecycleDays,
     bottleneck: { biggestDrop, longestDwell },
   };

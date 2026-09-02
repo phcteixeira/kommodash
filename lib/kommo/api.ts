@@ -121,25 +121,29 @@ export async function getLossReasons(): Promise<KommoLossReason[]> {
 }
 
 /**
- * Busca leads específicos por ID (em lotes de 50 — limite prático da API).
- * Usada para resolver o nome de leads referenciados por um evento fora da
- * janela de datas usada para listar leads (ex.: lead antigo que recebeu um
- * produto novo agora).
+ * Busca leads específicos por ID, com todos os campos (em lotes de 50 —
+ * limite prático da API). Usada para resolver leads referenciados por um
+ * evento fora da janela de datas usada para listar leads (ex.: lead antigo
+ * que recebeu um produto novo, ou avançou de etapa, agora).
  */
-export async function getLeadsByIds(ids: number[]): Promise<{ id: number; name: string }[]> {
+export async function getLeadsByIds(ids: number[]): Promise<KommoLead[]> {
   const unique = Array.from(new Set(ids));
-  const results: { id: number; name: string }[] = [];
+  const results: KommoLead[] = [];
   const chunkSize = 50;
 
   for (let i = 0; i < unique.length; i += chunkSize) {
     const chunk = unique.slice(i, i + chunkSize);
     const params = new URLSearchParams();
     for (const id of chunk) params.append("filter[id][]", String(id));
-    const raw = await kommoFetchAllPages<"leads", { id: number; name: string }>(
-      `/leads?${params.toString()}`,
-      "leads"
+    params.set("with", "catalog_elements");
+    const raw = await kommoFetchAllPages<"leads", RawLead>(`/leads?${params.toString()}`, "leads");
+    results.push(
+      ...raw.map((lead) => ({
+        ...lead,
+        custom_fields_values: lead.custom_fields_values ?? [],
+        catalog_element_ids: (lead._embedded?.catalog_elements ?? []).map((e) => e.id),
+      }))
     );
-    results.push(...raw);
   }
 
   return results;
