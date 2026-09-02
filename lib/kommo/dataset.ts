@@ -222,30 +222,31 @@ export interface FunnelEventsResult {
   error: string | null;
 }
 
-// Cache separado (só a página Leads e funil precisa desses eventos) — mesmo
-// padrão de `loadProductLinkEvents`. Sem limite superior: sempre busca até
-// agora, já que a janela desta página é só um `from` (ver `RANGE_PRESETS`).
+// Cache separado (mesmo padrão de `loadProductLinkEvents`). `to` é opcional
+// porque a página Leads e funil só usa um `from` (sempre busca até agora —
+// ver `RANGE_PRESETS`); a Visão geral já passa `to` pra limitar à mesma
+// janela do resto da página (ver buildOverviewSummary/countWonInWindow).
 const funnelEventsCache = new Map<string, { promise: Promise<FunnelEventsResult>; expiresAt: number }>();
 
-export function loadFunnelEvents(from: Date | undefined): Promise<FunnelEventsResult> {
+export function loadFunnelEvents(from: Date | undefined, to?: Date): Promise<FunnelEventsResult> {
   if (!isKommoConfigured()) {
     return Promise.resolve({ events: getMockStatusChangeEvents(), isDemo: true, error: null });
   }
 
-  const key = dateKey(from);
+  const key = `${dateKey(from)}_${dateKey(to)}`;
   const cached = funnelEventsCache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.promise;
   }
 
-  const promise = fetchFunnelEvents(from);
+  const promise = fetchFunnelEvents(from, to);
   funnelEventsCache.set(key, { promise, expiresAt: Date.now() + CACHE_TTL_MS });
   return promise;
 }
 
-async function fetchFunnelEvents(from: Date | undefined): Promise<FunnelEventsResult> {
+async function fetchFunnelEvents(from: Date | undefined, to?: Date): Promise<FunnelEventsResult> {
   try {
-    const events = await getLeadStatusChangeEvents({ from });
+    const events = await getLeadStatusChangeEvents({ from, to });
     return { events, isDemo: false, error: null };
   } catch (err) {
     const message =

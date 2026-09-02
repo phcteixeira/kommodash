@@ -74,32 +74,35 @@ export function buildFunnel(leads: KommoLead[], pipeline: KommoPipeline): Funnel
 // ---------- Visão geral (resumo executivo) ----------
 
 export interface OverviewSummary {
+  /** Leads CRIADOS no período (independente de já terem fechado ou não). */
   totalLeads: number;
-  /** Leads com status "ganho" — indica que houve conversão, não o que foi vendido (ver `contractCount`). */
+  /** Leads que passaram a "ganho" DENTRO do período (via evento de mudança
+   * de status, não pela data de criação) — indica que houve conversão, não
+   * o que foi vendido (ver `contractCount`). */
   wonCount: number;
-  /** % de leads do período com status "ganho". */
+  /** `wonCount` ÷ `totalLeads`. Mistura um número por evento (ganhos no
+   * período) com um por coorte (leads criados no período) — em janelas
+   * curtas ou com muito lead antigo fechando agora, pode passar de 100% ou
+   * parecer estranho; isso é esperado, não é erro (ver hint na UI). */
   wonRate: number;
   /**
-   * Nº de produtos (serviços) contratados pelos leads do período — soma de
-   * `catalog_element_ids`, não nº de leads: um lead pode contratar mais de
-   * um serviço. Métrica primária de resultado desta conta — ver CLAUDE.md.
+   * Nº de produtos (serviços) contratados DENTRO do período — contado pela
+   * data real do vínculo (mesmo método da página Contratos:
+   * `buildClosings`), não pela data de criação do lead. Sem isso, um lead
+   * criado antes do período mas fechado dentro dele nunca era contado (bug
+   * relatado por usuário — leads ganhos/contratos "sumindo" em janelas
+   * curtas). Métrica primária de resultado desta conta — ver CLAUDE.md.
    */
   contractCount: number;
-  /** Contratos ÷ leads GANHOS do período — quantos serviços em média cada cliente fechado gera. */
+  /** Contratos ÷ leads ganhos do período — quantos serviços em média cada cliente fechado gera. */
   avgContractsPerLead: number;
 }
 
 export function buildOverviewSummary(
-  leads: KommoLead[],
-  statusTypeMap: Map<number, PipelineStatusType>
+  totalLeads: number,
+  wonCount: number,
+  contractCount: number
 ): OverviewSummary {
-  let wonCount = 0;
-  let contractCount = 0;
-  for (const lead of leads) {
-    if (statusTypeMap.get(lead.status_id) === "won") wonCount += 1;
-    contractCount += lead.catalog_element_ids?.length ?? 0;
-  }
-  const totalLeads = leads.length;
   return {
     totalLeads,
     wonCount,
@@ -107,6 +110,27 @@ export function buildOverviewSummary(
     contractCount,
     avgContractsPerLead: wonCount > 0 ? contractCount / wonCount : 0,
   };
+}
+
+/**
+ * Conta leads DISTINTOS que passaram a "ganho" dentro da janela, via
+ * eventos de mudança de status (`lead_status_changed`) — não pela data de
+ * criação do lead. Um lead que virou ganho e voltou (raro, mas possível)
+ * conta uma vez só. Complementa `buildOverviewSummary` — ver seu comentário.
+ */
+export function countWonInWindow(
+  events: KommoStatusChangeEvent[],
+  statusTypeMap: Map<number, PipelineStatusType>,
+  window: { from: Date; to: Date }
+): number {
+  const fromSec = Math.floor(window.from.getTime() / 1000);
+  const toSec = Math.floor(window.to.getTime() / 1000);
+  const wonLeadIds = new Set<number>();
+  for (const event of events) {
+    if (event.changedAt < fromSec || event.changedAt > toSec) continue;
+    if (statusTypeMap.get(event.toStatusId) === "won") wonLeadIds.add(event.leadId);
+  }
+  return wonLeadIds.size;
 }
 
 // ---------- Atividades e tarefas ----------
