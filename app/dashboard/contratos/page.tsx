@@ -1,4 +1,4 @@
-import { loadKommoDataset, loadProductLinkEvents, resolveLeadNames } from "@/lib/kommo/dataset";
+import { loadKommoDataset, loadProductLinkEvents, resolveLeadsByIds } from "@/lib/kommo/dataset";
 import { buildClosings } from "@/lib/kommo/aggregate";
 import { resolveClosingsWindow, toDateInputValue } from "@/lib/date-range";
 import { formatDate, formatNumber } from "@/lib/format";
@@ -26,8 +26,11 @@ export default async function ContratosPage({
   const isDemo = datasetIsDemo || eventsResult.isDemo;
   const error = datasetError ?? eventsResult.error;
 
-  const leadNameById = await resolveLeadNames(leads, eventsResult.events);
-  const fullReport = buildClosings(leads, catalogElements, eventsResult.events, window, leadNameById);
+  const leadById = await resolveLeadsByIds(
+    leads,
+    eventsResult.events.map((e) => e.leadId)
+  );
+  const fullReport = buildClosings(leads, catalogElements, eventsResult.events, window, leadById);
 
   const selectedProductId = productParam ? Number(productParam) : null;
   const rows = selectedProductId

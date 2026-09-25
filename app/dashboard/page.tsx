@@ -1,5 +1,5 @@
 import { Filter, ListChecks, FileSignature, Trophy, Target, Percent } from "lucide-react";
-import { loadKommoDataset, loadProductLinkEvents, loadFunnelEvents } from "@/lib/kommo/dataset";
+import { loadKommoDataset, loadProductLinkEvents, loadFunnelEvents, resolveLeadsByIds } from "@/lib/kommo/dataset";
 import {
   buildStatusTypeMap,
   buildFunnel,
@@ -48,12 +48,16 @@ export default async function DashboardOverviewPage({
   // `avgContractsPerLead` misturam coorte com evento — ver hint na UI e o
   // comentário de `OverviewSummary` em lib/kommo/aggregate.ts.
   const wonCount = countWonInWindow(statusChangeEventsResult.events, statusTypeMap, eventsWindow);
+  const closingsLeadById = await resolveLeadsByIds(
+    leads,
+    productLinkEventsResult.events.map((e) => e.leadId)
+  );
   const contractCount = buildClosings(
     leads,
     catalogElements,
     productLinkEventsResult.events,
     eventsWindow,
-    new Map()
+    closingsLeadById
   ).totalClosings;
   const overview = buildOverviewSummary(leads.length, wonCount, contractCount);
   const activities = buildActivitySummary(tasks, users);

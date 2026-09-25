@@ -203,24 +203,33 @@ export interface ClosingsReport {
 
 /**
  * Lista "fechamentos" (produto vinculado a um lead) dentro de uma janela de
- * tempo. Fonte primária: eventos `entity_linked` (data exata do vínculo).
- * Para leads com produto vinculado mas sem evento correspondente encontrado
- * (dado antigo/importado, fora do alcance do log de eventos), usa a data de
- * criação do lead como aproximação — sinalizado em `isApproximate`.
+ * tempo. Fonte primária: eventos `entity_linked` (data exata do vínculo) —
+ * mas só conta se o produto ainda estiver vinculado ao lead HOJE
+ * (`lead.catalog_element_ids`). Sem essa checagem, um produto marcado por
+ * engano e desvinculado depois continuava aparecendo pra sempre — o evento
+ * de vínculo é permanente no histórico da Kommo, mesmo depois de desfeito
+ * (bug relatado por usuário). Para leads com produto vinculado mas sem
+ * evento correspondente encontrado (dado antigo/importado, fora do alcance
+ * do log de eventos), usa a data de criação do lead como aproximação —
+ * sinalizado em `isApproximate`; esse caminho já é auto-corrigido, porque
+ * itera `catalog_element_ids` (estado atual), não um evento.
  *
- * Um mesmo par (lead, produto) nunca aparece duas vezes: se há evento, a
- * aproximação por `created_at` é ignorada para aquele par.
+ * Um mesmo par (lead, produto) nunca aparece duas vezes: se há evento
+ * válido, a aproximação por `created_at` é ignorada para aquele par.
  *
- * `leadNameById` deve cobrir tanto os leads de `leads` quanto qualquer lead
+ * `leadById` deve cobrir tanto os leads de `leads` quanto qualquer lead
  * referenciado só pelos eventos (ex.: lead antigo, criado fora da janela,
- * que recebeu um produto novo agora) — ver `dataset.ts#resolveLeadNames`.
+ * que recebeu um produto novo agora) — ver `dataset.ts#resolveLeadsByIds`.
+ * Lead ausente do mapa (falha ao resolver) é tratado como "não confirmado"
+ * e o evento é ignorado — prefere sub-contar num caso raro de falha de API
+ * a super-contar um vínculo já desfeito, que era o problema original.
  */
 export function buildClosings(
   leads: KommoLead[],
   catalogElements: KommoCatalogElement[],
   events: KommoProductLinkEvent[],
   window: { from: Date; to: Date },
-  leadNameById: Map<number, string>
+  leadById: Map<number, KommoLead>
 ): ClosingsReport {
   const productNameById = new Map(catalogElements.map((e) => [e.id, e.name]));
   const validProductIds = new Set(catalogElements.map((e) => e.id));
@@ -238,7 +247,7 @@ export function buildClosings(
     seen.add(key);
     rows.push({
       leadId,
-      leadName: leadNameById.get(leadId) ?? `Lead ${leadId}`,
+      leadName: leadById.get(leadId)?.name ?? `Lead ${leadId}`,
       productId,
       productName: productNameById.get(productId) ?? `Produto ${productId}`,
       closedAt,
@@ -249,6 +258,8 @@ export function buildClosings(
 
   for (const event of events) {
     if (event.linkedAt < fromSec || event.linkedAt > toSec) continue;
+    const stillLinked = leadById.get(event.leadId)?.catalog_element_ids?.includes(event.catalogElementId) ?? false;
+    if (!stillLinked) continue; // vínculo desfeito depois (ou lead não resolvido) — não conta
     addRow(event.leadId, event.catalogElementId, event.linkedAt, false);
   }
 
