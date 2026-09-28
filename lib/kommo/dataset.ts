@@ -233,7 +233,7 @@ export interface FunnelEventsResult {
 // Cache separado (mesmo padrão de `loadProductLinkEvents`). `to` é opcional
 // porque a página Leads e funil só usa um `from` (sempre busca até agora —
 // ver `RANGE_PRESETS`); a Visão geral já passa `to` pra limitar à mesma
-// janela do resto da página (ver buildOverviewSummary/countWonInWindow).
+// janela do resto da página (ver buildOverviewSummary/countLeadsReachingStatusInWindow).
 const funnelEventsCache = new Map<string, { promise: Promise<FunnelEventsResult>; expiresAt: number }>();
 
 export function loadFunnelEvents(from: Date | undefined, to?: Date): Promise<FunnelEventsResult> {

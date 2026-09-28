@@ -6,7 +6,7 @@ import {
   buildOverviewSummary,
   buildActivitySummary,
   buildClosings,
-  countWonInWindow,
+  countLeadsReachingStatusInWindow,
 } from "@/lib/kommo/aggregate";
 import { resolveFunnelRange, toDateInputValue } from "@/lib/date-range";
 import { formatDecimal, formatNumber, formatPercent } from "@/lib/format";
@@ -47,17 +47,30 @@ export default async function DashboardOverviewPage({
   // continua sendo "leads criados no período", por isso `wonRate`/
   // `avgContractsPerLead` misturam coorte com evento — ver hint na UI e o
   // comentário de `OverviewSummary` em lib/kommo/aggregate.ts.
-  const wonCount = countWonInWindow(statusChangeEventsResult.events, statusTypeMap, eventsWindow);
-  const closingsLeadById = await resolveLeadsByIds(
-    leads,
-    productLinkEventsResult.events.map((e) => e.leadId)
+  //
+  // Um único registro completo cobre os leads referenciados tanto pelos
+  // eventos de status quanto pelos de vínculo de produto — necessário pra
+  // confirmar que "ganho"/"contrato" ainda são verdade HOJE (não só que
+  // aconteceram em algum momento — um lead marcado "perdido" por engano e
+  // corrigido depois não deveria contar como perdido; caso real encontrado
+  // na conta, ver countLeadsReachingStatusInWindow).
+  const leadById = await resolveLeadsByIds(leads, [
+    ...statusChangeEventsResult.events.map((e) => e.leadId),
+    ...productLinkEventsResult.events.map((e) => e.leadId),
+  ]);
+  const wonCount = countLeadsReachingStatusInWindow(
+    statusChangeEventsResult.events,
+    leadById,
+    statusTypeMap,
+    eventsWindow,
+    "won"
   );
   const contractCount = buildClosings(
     leads,
     catalogElements,
     productLinkEventsResult.events,
     eventsWindow,
-    closingsLeadById
+    leadById
   ).totalClosings;
   const overview = buildOverviewSummary(leads.length, wonCount, contractCount);
   const activities = buildActivitySummary(tasks, users);

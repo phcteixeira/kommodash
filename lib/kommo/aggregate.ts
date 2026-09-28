@@ -118,19 +118,32 @@ export function buildOverviewSummary(
  * criação do lead. Um lead que virou ganho e voltou (raro, mas possível)
  * conta uma vez só. Complementa `buildOverviewSummary` — ver seu comentário.
  */
-export function countWonInWindow(
+/**
+ * Conta leads distintos que tiveram uma mudança de status pra `targetType`
+ * DENTRO da janela E que ainda estão com esse status HOJE. Um lead que
+ * passou por lá e foi corrigido depois (ex.: marcado "perdido" por engano e
+ * revertido pra "ganho" minutos depois — caso real encontrado na conta) não
+ * conta — mesma proteção já aplicada em `buildClosings` pra produtos
+ * vinculados que foram desvinculados depois.
+ */
+export function countLeadsReachingStatusInWindow(
   events: KommoStatusChangeEvent[],
+  leadById: Map<number, KommoLead>,
   statusTypeMap: Map<number, PipelineStatusType>,
-  window: { from: Date; to: Date }
+  window: { from: Date; to: Date },
+  targetType: "won" | "lost"
 ): number {
   const fromSec = Math.floor(window.from.getTime() / 1000);
   const toSec = Math.floor(window.to.getTime() / 1000);
-  const wonLeadIds = new Set<number>();
+  const ids = new Set<number>();
   for (const event of events) {
     if (event.changedAt < fromSec || event.changedAt > toSec) continue;
-    if (statusTypeMap.get(event.toStatusId) === "won") wonLeadIds.add(event.leadId);
+    if (statusTypeMap.get(event.toStatusId) !== targetType) continue;
+    const currentStatusId = leadById.get(event.leadId)?.status_id;
+    if (currentStatusId === undefined || statusTypeMap.get(currentStatusId) !== targetType) continue;
+    ids.add(event.leadId);
   }
-  return wonLeadIds.size;
+  return ids.size;
 }
 
 // ---------- Atividades e tarefas ----------
@@ -523,7 +536,7 @@ export interface FunnelActivityReport {
  * teve atividade DENTRO do período — não quem nasceu nele. Complementa (e
  * substitui, nesta página) uma visão por coorte: lá, um lead criado antes do
  * período mas que avançou de etapa dentro dele ficava invisível (mesmo tipo
- * de correção já aplicada na Visão geral — ver `countWonInWindow`).
+ * de correção já aplicada na Visão geral — ver `countLeadsReachingStatusInWindow`).
  *
  * - "Alcançou a etapa": houve um evento levando o lead pra ela DENTRO do
  *   período (ou o lead foi criado no período — todo lead entra pela 1ª
@@ -604,8 +617,13 @@ export function buildFunnelActivity(
       reachedByStage.set(event.toStatusId, reached);
 
       const type = localTypeById.get(event.toStatusId);
-      if (type === "won") wonLeadIds.add(leadId);
-      if (type === "lost") lostLeadIds.add(leadId);
+      // Só conta ganho/perdido se o lead AINDA estiver com esse status hoje —
+      // um lead marcado "perdido" por engano e corrigido pra "ganho" (ou
+      // qualquer outra etapa) minutos depois não deveria contar como
+      // "perdido" no período (caso real encontrado na conta: lead 67739572).
+      const currentType = lead ? localTypeById.get(lead.status_id) : undefined;
+      if (type === "won" && currentType === "won") wonLeadIds.add(leadId);
+      if (type === "lost" && currentType === "lost") lostLeadIds.add(leadId);
     }
 
     for (let i = 0; i < timeline.length - 1; i++) {
