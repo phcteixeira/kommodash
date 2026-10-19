@@ -6,6 +6,7 @@ import type {
   KommoPipeline,
   KommoPipelineStatus,
   KommoProductLinkEvent,
+  KommoProductUnlinkEvent,
   KommoStatusChangeEvent,
   KommoTask,
   KommoUser,
@@ -214,6 +215,10 @@ export interface ClosingsReport {
   productSummary: ClosingsProductSummary[];
 }
 
+// Um vínculo desfeito até esse intervalo depois de criado é tratado como
+// clique errado corrigido na hora, não uma venda — ver `wasQuicklyUndone`.
+const MISCLICK_WINDOW_SECONDS = 5;
+
 /**
  * Lista "fechamentos" (produto vinculado a um lead) dentro de uma janela de
  * tempo. Fonte primária: eventos `entity_linked` (data exata do vínculo) —
@@ -227,8 +232,18 @@ export interface ClosingsReport {
  * sinalizado em `isApproximate`; esse caminho já é auto-corrigido, porque
  * itera `catalog_element_ids` (estado atual), não um evento.
  *
- * Um mesmo par (lead, produto) nunca aparece duas vezes: se há evento
- * válido, a aproximação por `created_at` é ignorada para aquele par.
+ * Cada evento de vínculo válido gera uma linha própria — um mesmo par
+ * (lead, produto) pode aparecer mais de uma vez (ex.: cliente contratou o
+ * mesmo serviço de novo semanas depois, via desvincular/revincular). A
+ * aproximação por `created_at` só é usada pra um par que não tenha NENHUM
+ * evento de vínculo válido na janela.
+ *
+ * Um vínculo desfeito em até `MISCLICK_WINDOW_SECONDS` depois de criado
+ * (`unlinkEvents`) é ignorado — tratado como clique errado desfeito na
+ * hora, não uma venda real. Pedido explícito da usuária após constatarmos,
+ * numa varredura da conta real, que a maioria dos vínculos repetidos pro
+ * mesmo par é separada por dias/semanas (venda nova de fato) e só uma
+ * minoria por segundos (clique errado).
  *
  * `leadById` deve cobrir tanto os leads de `leads` quanto qualquer lead
  * referenciado só pelos eventos (ex.: lead antigo, criado fora da janela,
@@ -241,6 +256,7 @@ export function buildClosings(
   leads: KommoLead[],
   catalogElements: KommoCatalogElement[],
   events: KommoProductLinkEvent[],
+  unlinkEvents: KommoProductUnlinkEvent[],
   window: { from: Date; to: Date },
   leadById: Map<number, KommoLead>
 ): ClosingsReport {
@@ -249,15 +265,28 @@ export function buildClosings(
   const fromSec = Math.floor(window.from.getTime() / 1000);
   const toSec = Math.floor(window.to.getTime() / 1000);
 
-  const seen = new Set<string>(); // `${leadId}:${catalogElementId}`
+  const unlinksByPair = new Map<string, number[]>(); // `${leadId}:${catalogElementId}` -> [unlinkedAt, ...]
+  for (const u of unlinkEvents) {
+    const key = `${u.leadId}:${u.catalogElementId}`;
+    const arr = unlinksByPair.get(key);
+    if (arr) arr.push(u.unlinkedAt);
+    else unlinksByPair.set(key, [u.unlinkedAt]);
+  }
+
+  function wasQuicklyUndone(leadId: number, productId: number, linkedAt: number): boolean {
+    const candidates = unlinksByPair.get(`${leadId}:${productId}`);
+    if (!candidates) return false;
+    return candidates.some(
+      (unlinkedAt) => unlinkedAt >= linkedAt && unlinkedAt - linkedAt <= MISCLICK_WINDOW_SECONDS
+    );
+  }
+
   const rows: ClosingListRow[] = [];
+  const pairsWithRealEvent = new Set<string>(); // `${leadId}:${catalogElementId}` já coberto por evento real
   let approximateCount = 0;
 
   function addRow(leadId: number, productId: number, closedAt: number, isApproximate: boolean) {
     if (!validProductIds.has(productId)) return;
-    const key = `${leadId}:${productId}`;
-    if (seen.has(key)) return;
-    seen.add(key);
     rows.push({
       leadId,
       leadName: leadById.get(leadId)?.name ?? `Lead ${leadId}`,
@@ -273,13 +302,16 @@ export function buildClosings(
     if (event.linkedAt < fromSec || event.linkedAt > toSec) continue;
     const stillLinked = leadById.get(event.leadId)?.catalog_element_ids?.includes(event.catalogElementId) ?? false;
     if (!stillLinked) continue; // vínculo desfeito depois (ou lead não resolvido) — não conta
+    if (wasQuicklyUndone(event.leadId, event.catalogElementId, event.linkedAt)) continue; // clique errado
     addRow(event.leadId, event.catalogElementId, event.linkedAt, false);
+    pairsWithRealEvent.add(`${event.leadId}:${event.catalogElementId}`);
   }
 
   for (const lead of leads) {
     if (lead.created_at < fromSec || lead.created_at > toSec) continue;
     for (const productId of lead.catalog_element_ids ?? []) {
-      addRow(lead.id, productId, lead.created_at, true); // ignorado se já veio de um evento real
+      if (pairsWithRealEvent.has(`${lead.id}:${productId}`)) continue; // já contado por evento real
+      addRow(lead.id, productId, lead.created_at, true);
     }
   }
 

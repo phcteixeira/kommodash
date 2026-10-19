@@ -13,8 +13,15 @@ import {
   getTasks,
   getUsers,
 } from "./api";
-import { getMockDataset, getMockLossReasons, getMockProductLinkEvents, getMockStatusChangeEvents } from "./mock-data";
-import type { KommoDataset, KommoLead, KommoLossReason, KommoProductLinkEvent, KommoStatusChangeEvent } from "./types";
+import { getMockDataset, getMockLossReasons, getMockProductLinkEvents, getMockProductUnlinkEvents, getMockStatusChangeEvents } from "./mock-data";
+import type {
+  KommoDataset,
+  KommoLead,
+  KommoLossReason,
+  KommoProductLinkEvent,
+  KommoProductUnlinkEvent,
+  KommoStatusChangeEvent,
+} from "./types";
 import { KommoApiError } from "./client";
 
 export interface DatasetResult {
@@ -116,6 +123,8 @@ async function fetchDataset(opts: DatasetOpts): Promise<DatasetResult> {
 
 export interface ProductLinkEventsResult {
   events: KommoProductLinkEvent[];
+  /** Desvínculos no mesmo período — só usados pra filtrar clique errado (ver buildClosings). */
+  unlinkEvents: KommoProductUnlinkEvent[];
   isDemo: boolean;
   error: string | null;
 }
@@ -127,7 +136,12 @@ const eventsCache = new Map<string, { promise: Promise<ProductLinkEventsResult>;
 
 export function loadProductLinkEvents(window: { from: Date; to: Date }): Promise<ProductLinkEventsResult> {
   if (!isKommoConfigured()) {
-    return Promise.resolve({ events: getMockProductLinkEvents(), isDemo: true, error: null });
+    return Promise.resolve({
+      events: getMockProductLinkEvents(),
+      unlinkEvents: getMockProductUnlinkEvents(),
+      isDemo: true,
+      error: null,
+    });
   }
 
   const key = `${dateKey(window.from)}_${dateKey(window.to)}`;
@@ -143,14 +157,14 @@ export function loadProductLinkEvents(window: { from: Date; to: Date }): Promise
 
 async function fetchProductLinkEvents(window: { from: Date; to: Date }): Promise<ProductLinkEventsResult> {
   try {
-    const events = await getProductLinkEvents({ from: window.from, to: window.to });
-    return { events, isDemo: false, error: null };
+    const { linked, unlinked } = await getProductLinkEvents({ from: window.from, to: window.to });
+    return { events: linked, unlinkEvents: unlinked, isDemo: false, error: null };
   } catch (err) {
     const message =
       err instanceof KommoApiError
         ? err.message
         : "Não foi possível conectar à API da Kommo. Verifique sua conexão e tente novamente.";
-    return { events: getMockProductLinkEvents(), isDemo: true, error: message };
+    return { events: getMockProductLinkEvents(), unlinkEvents: getMockProductUnlinkEvents(), isDemo: true, error: message };
   }
 }
 

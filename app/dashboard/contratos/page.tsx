@@ -30,7 +30,7 @@ export default async function ContratosPage({
     leads,
     eventsResult.events.map((e) => e.leadId)
   );
-  const fullReport = buildClosings(leads, catalogElements, eventsResult.events, window, leadById);
+  const fullReport = buildClosings(leads, catalogElements, eventsResult.events, eventsResult.unlinkEvents, window, leadById);
 
   const selectedProductId = productParam ? Number(productParam) : null;
   const rows = selectedProductId

@@ -69,6 +69,7 @@ export default async function DashboardOverviewPage({
     leads,
     catalogElements,
     productLinkEventsResult.events,
+    productLinkEventsResult.unlinkEvents,
     eventsWindow,
     leadById
   ).totalClosings;

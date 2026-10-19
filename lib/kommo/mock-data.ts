@@ -9,6 +9,7 @@ import type {
   KommoLossReason,
   KommoPipeline,
   KommoProductLinkEvent,
+  KommoProductUnlinkEvent,
   KommoStatusChangeEvent,
   KommoTask,
   KommoUser,
@@ -403,6 +404,11 @@ export function getMockDataset(): KommoDataset {
 
 export function getMockProductLinkEvents(): KommoProductLinkEvent[] {
   return MOCK_PRODUCT_LINK_EVENTS;
+}
+
+// Modo demo não simula clique errado (não há nada a filtrar) — lista vazia.
+export function getMockProductUnlinkEvents(): KommoProductUnlinkEvent[] {
+  return [];
 }
 
 export function getMockStatusChangeEvents(): KommoStatusChangeEvent[] {

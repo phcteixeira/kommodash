@@ -10,6 +10,7 @@ import type {
   KommoPipeline,
   KommoPipelineStatus,
   KommoProductLinkEvent,
+  KommoProductUnlinkEvent,
   KommoStatusChangeEvent,
   KommoTask,
   KommoUser,
@@ -195,12 +196,20 @@ interface RawEvent {
   entity_id: number;
   created_at: number;
   value_after?: { link?: { entity?: { type: unknown; id: number } } }[];
+  value_before?: { link?: { entity?: { type: unknown; id: number } } }[];
+}
+
+export interface ProductLinkEventsBundle {
+  linked: KommoProductLinkEvent[];
+  unlinked: KommoProductUnlinkEvent[];
 }
 
 /**
- * Busca eventos `entity_linked` de leads (vínculo com produto, contato ou
- * empresa) e retorna apenas os que representam um produto sendo vinculado
- * a um lead ("fechamento").
+ * Busca eventos `entity_linked`/`entity_unlinked` de leads (vínculo com
+ * produto, contato ou empresa) e retorna apenas os que representam um
+ * produto sendo vinculado/desvinculado de um lead. Os desvínculos são
+ * usados só pra identificar um vínculo desfeito poucos segundos depois de
+ * criado (clique errado) — ver `buildClosings` em aggregate.ts.
  *
  * A API da Kommo não expõe um tipo de evento dedicado a "produto vinculado":
  * vínculos de contato/empresa trazem `link.entity.type` como texto (ex.:
@@ -209,9 +218,10 @@ interface RawEvent {
  * real. Por isso `aggregate.ts` ainda cruza o resultado com a lista de
  * elementos de catálogo conhecidos antes de contabilizar.
  */
-export async function getProductLinkEvents(filter: EventDateFilter = {}): Promise<KommoProductLinkEvent[]> {
+export async function getProductLinkEvents(filter: EventDateFilter = {}): Promise<ProductLinkEventsBundle> {
   const params = new URLSearchParams();
-  params.set("filter[type][]", "entity_linked");
+  params.append("filter[type][]", "entity_linked");
+  params.append("filter[type][]", "entity_unlinked");
   params.set("filter[entity]", "leads");
   if (filter.from) {
     params.set("filter[created_at][from]", String(Math.floor(filter.from.getTime() / 1000)));
@@ -223,13 +233,20 @@ export async function getProductLinkEvents(filter: EventDateFilter = {}): Promis
 
   const raw = await kommoFetchAllPages<"events", RawEvent>(path, "events");
 
-  const events: KommoProductLinkEvent[] = [];
+  const linked: KommoProductLinkEvent[] = [];
+  const unlinked: KommoProductUnlinkEvent[] = [];
   for (const event of raw) {
-    const link = event.value_after?.[0]?.link?.entity;
-    if (!link || link.type !== false) continue;
-    events.push({ leadId: event.entity_id, catalogElementId: link.id, linkedAt: event.created_at });
+    const linkedEntity = event.value_after?.[0]?.link?.entity;
+    if (linkedEntity && linkedEntity.type === false) {
+      linked.push({ leadId: event.entity_id, catalogElementId: linkedEntity.id, linkedAt: event.created_at });
+      continue;
+    }
+    const unlinkedEntity = event.value_before?.[0]?.link?.entity;
+    if (unlinkedEntity && unlinkedEntity.type === false) {
+      unlinked.push({ leadId: event.entity_id, catalogElementId: unlinkedEntity.id, unlinkedAt: event.created_at });
+    }
   }
-  return events;
+  return { linked, unlinked };
 }
 
 interface RawStatusChangeEvent {

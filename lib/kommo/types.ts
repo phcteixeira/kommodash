@@ -133,6 +133,18 @@ export interface KommoProductLinkEvent {
 }
 
 /**
+ * O desfazimento de um vínculo produto↔lead, derivado do evento
+ * `entity_unlinked`. Usado só para identificar um vínculo desfeito poucos
+ * segundos depois de criado (clique errado desfeito na hora) — ver
+ * `buildClosings` em aggregate.ts.
+ */
+export interface KommoProductUnlinkEvent {
+  leadId: number;
+  catalogElementId: number;
+  unlinkedAt: number; // unix seconds
+}
+
+/**
  * Uma mudança de etapa (status) de um lead, derivada do evento
  * `lead_status_changed` da API de eventos da Kommo. Base para calcular tempo
  * de permanência por etapa e taxa de avanço no funil (Leads e funil).
