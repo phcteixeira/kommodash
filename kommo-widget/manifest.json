@@ -34,6 +34,17 @@
           "manual": true
         }
       }
+    },
+    "business_hours_gate": {
+      "name": "salesbot.business_hours_gate_name",
+      "settings": {
+        "webhook_url": {
+          "name": "salesbot.webhook_url",
+          "type": "text",
+          "default_value": "https://kommodash.vercel.app/api/agent/business-hours-gate",
+          "manual": true
+        }
+      }
     }
   }
 }

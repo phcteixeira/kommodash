@@ -6,6 +6,7 @@
   },
   "salesbot": {
     "handler_name": "Reply with AI (Botclaude)",
+    "business_hours_gate_name": "Check business hours (Botclaude)",
     "webhook_url": "AI server URL"
   },
   "settings": {

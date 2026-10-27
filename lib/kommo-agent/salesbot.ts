@@ -108,3 +108,51 @@ export async function continueSalesbotWithReply(returnUrl: string, replyText: st
     );
   }
 }
+
+async function postExecuteHandlers(
+  returnUrl: string,
+  executeHandlers: Record<string, unknown>[]
+): Promise<void> {
+  const res = await fetch(returnUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${kommoConfig.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ execute_handlers: executeHandlers }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new KommoAgentSalesbotError(
+      `Falha ao responder ao Salesbot (${res.status}): ${body.slice(0, 300)}`,
+      res.status
+    );
+  }
+}
+
+/**
+ * Deixa a "etapa adaptada" terminar sem fazer nada visível — o robô segue
+ * pra próxima etapa conectada no Designer (ex.: a mensagem da IA).
+ *
+ * `goto`/`finish` é documentado pela Kommo pra pular etapas, mas o
+ * comportamento de "continuar sem handler nenhum" ainda não foi testado
+ * contra a conta real — validar com um teste manual (fora do horário
+ * comercial) antes de confiar nisso em produção.
+ */
+export async function continueSalesbotFlow(returnUrl: string): Promise<void> {
+  await postExecuteHandlers(returnUrl, []);
+}
+
+/**
+ * Encerra a execução do robô nessa etapa — usado quando é horário
+ * comercial e a equipe deve atender direto, sem a IA entrar no meio.
+ *
+ * `{"handler":"goto","params":{"type":"finish"}}` é a forma documentada
+ * publicamente de encerrar o robô a partir de uma etapa, mas (assim como
+ * `continueSalesbotFlow`) ainda não foi confirmada contra a conta real —
+ * testar antes de depender disso em produção.
+ */
+export async function stopSalesbot(returnUrl: string): Promise<void> {
+  await postExecuteHandlers(returnUrl, [{ handler: "goto", params: { type: "finish" } }]);
+}

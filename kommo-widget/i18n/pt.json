@@ -6,6 +6,7 @@
   },
   "salesbot": {
     "handler_name": "Responder com IA (Botclaude)",
+    "business_hours_gate_name": "Checar horário comercial (Botclaude)",
     "webhook_url": "URL do servidor de IA"
   },
   "settings": {
