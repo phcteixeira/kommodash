@@ -140,11 +140,18 @@ define(['jquery'], function ($) {
       var buttonHtml =
         '<button class="botclaude-contracts-save" style="margin-top:8px;width:100%;padding:7px;border-radius:4px;border:none;background:#2a78d6;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Registrar</button>';
 
+      // A faixa de cabeçalho (caption) é gerada pela própria Kommo — o
+      // objeto `caption` não documenta uma opção de cor, então força por
+      // CSS em cima da classe que a gente já passa nela (`class_name`).
+      var captionStyleHtml =
+        '<style>.botclaude-contracts-panel{background:#2a78d6 !important;color:#fff !important;}</style>';
+
       self.render_template(
         {
           caption: { class_name: 'botclaude-contracts-panel', text: 'Registrar contrato' },
           body: '',
           render:
+            captionStyleHtml +
             '<div class="botclaude-contracts" style="padding:10px;background:#fff;border-radius:6px;">' +
             selectHtml +
             buttonHtml +
