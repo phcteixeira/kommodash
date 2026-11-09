@@ -14,15 +14,20 @@ const STAGE_ICONS = [UserSearch, MessageSquareText, Send, FileCheck2] as const;
 export default async function PerformanceLeadsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; pipeline?: string }>;
 }) {
-  const { period, from: fromParam, to: toParam } = await searchParams;
+  const { period, from: fromParam, to: toParam, pipeline: pipelineParam } = await searchParams;
   const window = resolveClosingsWindow({ period, from: fromParam, to: toParam });
 
   const { dataset, isDemo, error } = await loadKommoDataset({ createdFrom: window.from, createdTo: window.to });
-  const { leads, customFields } = dataset;
+  const { leads, customFields, pipelines } = dataset;
 
-  const funnel = buildLeadPerformanceFunnel(leads, customFields, window);
+  const selectedPipelineId = pipelineParam ? Number(pipelineParam) : null;
+  const leadsInPipeline = selectedPipelineId
+    ? leads.filter((l) => l.pipeline_id === selectedPipelineId)
+    : leads;
+
+  const funnel = buildLeadPerformanceFunnel(leadsInPipeline, customFields, window);
 
   return (
     <div>
@@ -38,6 +43,8 @@ export default async function PerformanceLeadsPage({
           currentPeriod={window.key}
           currentFrom={toDateInputValue(window.from)}
           currentTo={toDateInputValue(window.to)}
+          pipelines={[...pipelines].sort((a, b) => a.sort - b.sort).map((p) => ({ id: p.id, name: p.name }))}
+          currentPipelineId={selectedPipelineId ? String(selectedPipelineId) : "all"}
         />
       </div>
 
