@@ -143,8 +143,14 @@ define(['jquery'], function ($) {
       // A faixa de cabeçalho (caption) é gerada pela própria Kommo — o
       // objeto `caption` não documenta uma opção de cor, então força por
       // CSS em cima da classe que a gente já passa nela (`class_name`).
+      // O elemento tem filhos por dentro (confirmado via inspeção: ex. o
+      // texto do título) com fundo próprio, cobrindo parte do azul —
+      // zera o fundo deles e deixa só o do elemento de fora aparecer.
       var captionStyleHtml =
-        '<style>.botclaude-contracts-panel{background:#2a78d6 !important;color:#fff !important;}</style>';
+        '<style>' +
+        '.botclaude-contracts-panel{background:#2a78d6 !important;color:#fff !important;}' +
+        '.botclaude-contracts-panel *{background:transparent !important;color:#fff !important;}' +
+        '</style>';
 
       self.render_template(
         {
