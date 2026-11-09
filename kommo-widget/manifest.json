@@ -13,13 +13,31 @@
       "email": "pzzamarketing@gmail.com"
     }
   },
-  "locations": ["salesbot_designer"],
+  "locations": ["salesbot_designer", "lcard-1"],
   "settings": {
     "webhook_url": {
       "name": "settings.webhook_url",
       "type": "text",
       "required": false,
       "default_value": "https://kommodash.vercel.app/api/agent/webhook"
+    },
+    "contracts_products_url": {
+      "name": "settings.contracts_products_url",
+      "type": "text",
+      "required": false,
+      "default_value": "https://kommodash.vercel.app/api/agent/contracts/products"
+    },
+    "contracts_register_url": {
+      "name": "settings.contracts_register_url",
+      "type": "text",
+      "required": false,
+      "default_value": "https://kommodash.vercel.app/api/agent/contracts/register"
+    },
+    "contracts_secret": {
+      "name": "settings.contracts_secret",
+      "type": "text",
+      "required": false,
+      "default_value": ""
     }
   },
   "salesbot_designer": {

@@ -10,6 +10,9 @@
     "webhook_url": "URL do servidor de IA"
   },
   "settings": {
-    "webhook_url": "URL do servidor de IA"
+    "webhook_url": "URL do servidor de IA",
+    "contracts_products_url": "URL de produtos (registro de contratos)",
+    "contracts_register_url": "URL de registro de contratos",
+    "contracts_secret": "Chave secreta (registro de contratos)"
   }
 }

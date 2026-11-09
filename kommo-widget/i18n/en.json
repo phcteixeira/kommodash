@@ -10,6 +10,9 @@
     "webhook_url": "AI server URL"
   },
   "settings": {
-    "webhook_url": "AI server URL"
+    "webhook_url": "AI server URL",
+    "contracts_products_url": "Products URL (contract registration)",
+    "contracts_register_url": "Contract registration URL",
+    "contracts_secret": "Shared secret (contract registration)"
   }
 }
