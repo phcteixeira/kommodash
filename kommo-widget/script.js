@@ -156,6 +156,13 @@ define(['jquery'], function ($) {
         '.botclaude-contracts-panel img{display:none !important;}' +
         '</style>';
 
+      // "Contratos" como cabeçalho dentro do próprio conteúdo que a gente
+      // controla 100% (em vez de confiar no texto nativo do caption da
+      // Kommo, que não é garantido renderizar visível) — área branca,
+      // sempre previsível independente do que a Kommo fizer por fora.
+      var headerHtml =
+        '<div style="background:#2a78d6;color:#fff;font-weight:600;font-size:13px;padding:8px 10px;border-radius:6px 6px 0 0;margin:-10px -10px 10px -10px;">Contratos</div>';
+
       self.render_template(
         {
           caption: { class_name: 'botclaude-contracts-panel', text: 'Registrar contrato' },
@@ -163,6 +170,7 @@ define(['jquery'], function ($) {
           render:
             captionStyleHtml +
             '<div class="botclaude-contracts" style="padding:10px;background:#fff;border-radius:6px;">' +
+            headerHtml +
             selectHtml +
             buttonHtml +
             '<div class="botclaude-contracts__feedback" style="display:none;font-size:12px;margin-top:6px;color:#111;"></div>' +
