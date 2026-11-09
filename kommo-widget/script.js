@@ -121,31 +121,34 @@ define(['jquery'], function ($) {
     }
 
     function renderPanelWithProducts(products, leadId, registerUrl, secret) {
+      // HTML com estilo próprio em vez de self.render()/twig: os templates
+      // nativos da Kommo saíram sem contraste nesse contexto (controle
+      // nativo do navegador herdando modo escuro do SO, sem o CSS da
+      // Kommo "vestir" por cima) — forçar cor aqui garante legibilidade
+      // independente de tema claro/escuro.
       var selectId = 'botclaude-contracts-select';
-      var selectHtml = self.render(
-        { ref: '/tmpl/controls/select.twig' },
-        {
-          items: products.map(function (p) {
-            return { option: p.name, id: p.id };
-          }),
-          class_name: 'botclaude-contracts-select',
-          id: selectId
-        }
-      );
-      var buttonHtml = self.render(
-        { ref: '/tmpl/controls/button.twig' },
-        { text: 'Registrar', class_name: 'botclaude-contracts-save' }
-      );
+      var optionsHtml = products
+        .map(function (p) {
+          return '<option value="' + p.id + '">' + p.name + '</option>';
+        })
+        .join('');
+      var selectHtml =
+        '<select id="' + selectId + '" style="width:100%;padding:6px;border-radius:4px;border:1px solid #ccc;background:#fff;color:#111;font-size:13px;">' +
+        '<option value="">Selecione o produto</option>' +
+        optionsHtml +
+        '</select>';
+      var buttonHtml =
+        '<button class="botclaude-contracts-save" style="margin-top:8px;width:100%;padding:7px;border-radius:4px;border:none;background:#2a78d6;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">Registrar</button>';
 
       self.render_template(
         {
           caption: { class_name: 'botclaude-contracts-panel' },
           body: '',
           render:
-            '<div class="botclaude-contracts">' +
-            '<div class="botclaude-contracts__select">' + selectHtml + '</div>' +
-            '<div class="botclaude-contracts__button">' + buttonHtml + '</div>' +
-            '<div class="botclaude-contracts__feedback" style="display:none;font-size:12px;margin-top:6px;"></div>' +
+            '<div class="botclaude-contracts" style="padding:10px;background:#fff;border-radius:6px;">' +
+            selectHtml +
+            buttonHtml +
+            '<div class="botclaude-contracts__feedback" style="display:none;font-size:12px;margin-top:6px;color:#111;"></div>' +
             '</div>'
         },
         {}
