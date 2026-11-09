@@ -143,13 +143,17 @@ define(['jquery'], function ($) {
       // A faixa de cabeçalho (caption) é gerada pela própria Kommo — o
       // objeto `caption` não documenta uma opção de cor, então força por
       // CSS em cima da classe que a gente já passa nela (`class_name`).
-      // O elemento tem filhos por dentro (confirmado via inspeção: ex. o
-      // texto do título) com fundo próprio, cobrindo parte do azul —
-      // zera o fundo deles e deixa só o do elemento de fora aparecer.
+      // O retângulo escuro NÃO era um fundo CSS — era a própria logo do
+      // widget (<img class="card-widgets__widget_caption_logo">) que a
+      // Kommo insere automaticamente ali (confirmado via inspeção real do
+      // DOM). CSS de `background` não tem efeito sobre o conteúdo de uma
+      // <img> — por isso as tentativas anteriores não mudaram nada.
+      // Solução: esconder a imagem, não tentar recolorir.
       var captionStyleHtml =
         '<style>' +
         '.botclaude-contracts-panel{background:#2a78d6 !important;color:#fff !important;}' +
         '.botclaude-contracts-panel *{background:transparent !important;color:#fff !important;}' +
+        '.botclaude-contracts-panel img{display:none !important;}' +
         '</style>';
 
       self.render_template(
