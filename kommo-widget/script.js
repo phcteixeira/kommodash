@@ -142,7 +142,7 @@ define(['jquery'], function ($) {
 
       self.render_template(
         {
-          caption: { class_name: 'botclaude-contracts-panel' },
+          caption: { class_name: 'botclaude-contracts-panel', text: 'Registrar contrato' },
           body: '',
           render:
             '<div class="botclaude-contracts" style="padding:10px;background:#fff;border-radius:6px;">' +
