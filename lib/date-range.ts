@@ -1,4 +1,24 @@
-import { endOfDay, startOfDay, subDays, subMonths } from "date-fns";
+import { subDays, subMonths } from "date-fns";
+
+// Horário de Brasília tem offset fixo (-03:00, sem horário de verão desde
+// 2019) — por isso dá pra calcular início/fim do dia sem depender do fuso
+// do processo Node. Isso importa porque o Vercel roda em UTC por padrão:
+// `startOfDay`/`endOfDay` do date-fns, ou um `new Date("2026-10-01T00:00:00")`
+// sem fuso explícito, acabavam ancorados no dia UTC — uma janela "01/10 a
+// 31/10" virava, na prática, "30/09 21h a 31/10 20h59" em Brasília (3h
+// adiantada), incluindo leads de véspera e perdendo leads do fim do último
+// dia (bug relatado por usuário, confirmado contra a conta real).
+const BR_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+function startOfDayBR(date: Date): Date {
+  const shifted = new Date(date.getTime() - BR_OFFSET_MS);
+  shifted.setUTCHours(0, 0, 0, 0);
+  return new Date(shifted.getTime() + BR_OFFSET_MS);
+}
+
+function endOfDayBR(date: Date): Date {
+  return new Date(startOfDayBR(date).getTime() + 24 * 60 * 60 * 1000 - 1);
+}
 
 export const RANGE_PRESETS = {
   "7d": { label: "Últimos 7 dias", days: 7 },
@@ -57,9 +77,9 @@ export function toDateInputValue(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-/** Interpreta um valor "yyyy-MM-dd" (de <input type="date">) como meia-noite local. */
+/** Interpreta um valor "yyyy-MM-dd" (de <input type="date">) como meia-noite em Brasília. */
 function parseDateInputValue(value: string): Date {
-  return new Date(`${value}T00:00:00`);
+  return new Date(`${value}T00:00:00-03:00`);
 }
 
 export function resolveClosingsWindow(params: {
@@ -74,12 +94,12 @@ export function resolveClosingsWindow(params: {
     const parsedFrom = params.from ? parseDateInputValue(params.from) : subDays(now, 6);
     const parsedTo = params.to ? parseDateInputValue(params.to) : now;
     const [start, end] = parsedFrom <= parsedTo ? [parsedFrom, parsedTo] : [parsedTo, parsedFrom];
-    return { key, from: startOfDay(start), to: endOfDay(end) };
+    return { key, from: startOfDayBR(start), to: endOfDayBR(end) };
   }
-  if (key === "today") return { key, from: startOfDay(now), to: endOfDay(now) };
-  if (key === "7d") return { key, from: startOfDay(subDays(now, 6)), to: endOfDay(now) };
-  if (key === "15d") return { key, from: startOfDay(subDays(now, 14)), to: endOfDay(now) };
-  return { key, from: startOfDay(subMonths(now, 1)), to: endOfDay(now) }; // month
+  if (key === "today") return { key, from: startOfDayBR(now), to: endOfDayBR(now) };
+  if (key === "7d") return { key, from: startOfDayBR(subDays(now, 6)), to: endOfDayBR(now) };
+  if (key === "15d") return { key, from: startOfDayBR(subDays(now, 14)), to: endOfDayBR(now) };
+  return { key, from: startOfDayBR(subMonths(now, 1)), to: endOfDayBR(now) }; // month
 }
 
 // ---------- Filtro de período da página Leads e funil ----------
@@ -117,7 +137,7 @@ export function resolveFunnelRange(params: { range?: string; from?: string; to?:
     const parsedFrom = params.from ? parseDateInputValue(params.from) : subDays(now, 89);
     const parsedTo = params.to ? parseDateInputValue(params.to) : now;
     const [start, end] = parsedFrom <= parsedTo ? [parsedFrom, parsedTo] : [parsedTo, parsedFrom];
-    return { key, from: startOfDay(start), to: endOfDay(end) };
+    return { key, from: startOfDayBR(start), to: endOfDayBR(end) };
   }
 
   const preset = FUNNEL_RANGE_PRESETS[key];
