@@ -70,16 +70,28 @@ define(['jquery'], function ($) {
     // uma nota nova no lead (lib/kommo/contracts-notes.ts na Vercel),
     // sem limite e com a data/hora que a própria Kommo grava na nota.
     //
-    // ATENÇÃO: diferente do handler do Salesbot (já validado em produção),
-    // essa parte NÃO foi testada contra a conta real — a documentação da
-    // Kommo não confirma de onde vem o id do lead disponível pro widget
-    // nem garante que `APP.data.current_card.id` é o campo certo aqui.
-    // Testar ao vivo depois de instalar/atualizar o widget e ajustar se o
-    // painel não aparecer ou o id do lead vier errado (abrir o console do
-    // navegador numa ficha de lead e inspecionar `APP.data.current_card`).
+    // `APP.data.current_card.id` (o caminho sugerido pela documentação)
+    // não existe de verdade — confirmado no console da conta real: o id
+    // fica dentro de uma chave aninhada (ex.: `current_card.eu.id`). Como
+    // não há garantia de que esse nome de chave seja estável (pode mudar
+    // por build/conta), `extractLeadId` não fixa o nome "eu" — pega o id
+    // direto se existir, senão procura no primeiro valor aninhado do
+    // objeto, que é o formato observado.
+    function extractLeadId() {
+      var cardData = window.APP && APP.data && APP.data.current_card;
+      if (!cardData) return null;
+      if (typeof cardData.id !== 'undefined') return cardData.id;
+      var keys = Object.keys(cardData);
+      for (var i = 0; i < keys.length; i++) {
+        var nested = cardData[keys[i]];
+        if (nested && typeof nested.id !== 'undefined') return nested.id;
+      }
+      return null;
+    }
+
     function renderContractsPanel() {
       var settings = (self.get_settings && self.get_settings()) || {};
-      var leadId = window.APP && APP.data && APP.data.current_card && APP.data.current_card.id;
+      var leadId = extractLeadId();
       if (!leadId) return; // sem lead carregado (ex.: outra área, ou card novo sem id ainda)
 
       var productsUrl = settings.contracts_products_url;
