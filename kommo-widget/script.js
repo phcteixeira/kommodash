@@ -90,20 +90,33 @@ define(['jquery'], function ($) {
     }
 
     function renderContractsPanel() {
+      // Log incondicional pra diferenciar "render não foi chamado" de
+      // "foi chamado e não achou o que precisava" — útil pra depurar sem
+      // precisar adivinhar (a Kommo não loga nada sozinha sobre isso).
+      console.log('[botclaude] renderContractsPanel chamado');
+
       var settings = (self.get_settings && self.get_settings()) || {};
       var leadId = extractLeadId();
+      console.log('[botclaude] leadId:', leadId, 'settings:', settings);
       if (!leadId) return; // sem lead carregado (ex.: outra área, ou card novo sem id ainda)
 
       var productsUrl = settings.contracts_products_url;
       var registerUrl = settings.contracts_register_url;
       var secret = settings.contracts_secret;
-      if (!productsUrl || !registerUrl || !secret) return; // campos da instalação não preenchidos
+      if (!productsUrl || !registerUrl || !secret) {
+        console.log('[botclaude] campos de configuração do widget vazios, não vai renderizar');
+        return;
+      }
 
       $.ajax({ url: productsUrl + '?secret=' + encodeURIComponent(secret), method: 'GET', dataType: 'json' })
         .done(function (response) {
+          console.log('[botclaude] resposta de /products:', response);
           if (response && response.ok) {
             renderPanelWithProducts(response.products || [], leadId, registerUrl, secret);
           }
+        })
+        .fail(function (xhr, status, err) {
+          console.log('[botclaude] falha ao buscar produtos:', status, err, xhr && xhr.responseText);
         });
     }
 
