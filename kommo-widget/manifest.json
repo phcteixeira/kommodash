@@ -3,7 +3,7 @@
     "name": "widget.name",
     "description": "widget.description",
     "short_description": "widget.short_description",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "interface_version": 2,
     "init_once": true,
     "locale": ["pt", "en"],
@@ -38,6 +38,18 @@
       "type": "text",
       "required": false,
       "default_value": ""
+    },
+    "proposals_options_url": {
+      "name": "settings.proposals_options_url",
+      "type": "text",
+      "required": false,
+      "default_value": "https://kommodash.vercel.app/api/agent/proposals/options"
+    },
+    "proposals_register_url": {
+      "name": "settings.proposals_register_url",
+      "type": "text",
+      "required": false,
+      "default_value": "https://kommodash.vercel.app/api/agent/proposals/register"
     }
   },
   "salesbot_designer": {

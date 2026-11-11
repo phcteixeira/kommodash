@@ -13,6 +13,8 @@
     "webhook_url": "URL do servidor de IA",
     "contracts_products_url": "URL de produtos (registro de contratos)",
     "contracts_register_url": "URL de registro de contratos",
-    "contracts_secret": "Chave secreta (registro de contratos)"
+    "contracts_secret": "Chave secreta (registro de contratos)",
+    "proposals_options_url": "URL de opções (registro de propostas)",
+    "proposals_register_url": "URL de registro de propostas"
   }
 }

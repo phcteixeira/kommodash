@@ -13,6 +13,8 @@
     "webhook_url": "AI server URL",
     "contracts_products_url": "Products URL (contract registration)",
     "contracts_register_url": "Contract registration URL",
-    "contracts_secret": "Shared secret (contract registration)"
+    "contracts_secret": "Shared secret (contract registration)",
+    "proposals_options_url": "Options URL (proposal registration)",
+    "proposals_register_url": "Proposal registration URL"
   }
 }
