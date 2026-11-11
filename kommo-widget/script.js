@@ -163,20 +163,32 @@ define(['jquery'], function ($) {
       var secret = settings.contracts_secret;
       var proposalsOptionsUrl = settings.proposals_options_url;
       var proposalsRegisterUrl = settings.proposals_register_url;
+      var demandsOptionsUrl = settings.demands_options_url;
+      var demandsRegisterUrl = settings.demands_register_url;
       if (!productsUrl || !contractsRegisterUrl || !secret) {
         console.log('[botclaude] campos de configuração do widget vazios, não vai renderizar');
         return;
       }
 
-      var productsReq = $.ajax({ url: productsUrl + '?secret=' + encodeURIComponent(secret), method: 'GET', dataType: 'json' });
-      var proposalsReq = proposalsOptionsUrl
-        ? $.ajax({ url: proposalsOptionsUrl + '?secret=' + encodeURIComponent(secret), method: 'GET', dataType: 'json' })
-        : $.Deferred().resolve({ ok: true, options: [] });
+      function fetchOptions(url) {
+        return url
+          ? $.ajax({ url: url + '?secret=' + encodeURIComponent(secret), method: 'GET', dataType: 'json' })
+          : $.Deferred().resolve({ ok: true, options: [], products: [] });
+      }
 
-      $.when(productsReq, proposalsReq).done(function (productsResult, proposalsResult) {
+      var productsReq = fetchOptions(productsUrl);
+      var proposalsReq = fetchOptions(proposalsOptionsUrl);
+      var demandsReq = fetchOptions(demandsOptionsUrl);
+
+      $.when(productsReq, proposalsReq, demandsReq).done(function (productsResult, proposalsResult, demandsResult) {
         var productsResponse = productsResult[0] || productsResult;
         var proposalsResponse = proposalsResult[0] || proposalsResult;
-        console.log('[botclaude] resposta de /products:', productsResponse, '/proposals/options:', proposalsResponse);
+        var demandsResponse = demandsResult[0] || demandsResult;
+        console.log(
+          '[botclaude] resposta de /products:', productsResponse,
+          '/proposals/options:', proposalsResponse,
+          '/demands/options:', demandsResponse
+        );
 
         renderPanel({
           leadId: leadId,
@@ -184,6 +196,8 @@ define(['jquery'], function ($) {
           contractsRegisterUrl: contractsRegisterUrl,
           proposalOptions: (proposalsResponse && proposalsResponse.ok && proposalsResponse.options) || [],
           proposalsRegisterUrl: proposalsRegisterUrl,
+          demandOptions: (demandsResponse && demandsResponse.ok && demandsResponse.options) || [],
+          demandsRegisterUrl: demandsRegisterUrl,
           secret: secret
         });
       }).fail(function (xhr, status, err) {
@@ -192,10 +206,12 @@ define(['jquery'], function ($) {
     }
 
     function renderPanel(data) {
-      var contractsSelectId = 'botclaude-contracts-select';
-      var contractsButtonClass = 'botclaude-contracts-save';
+      var demandsSelectId = 'botclaude-demands-select';
+      var demandsButtonClass = 'botclaude-demands-save';
       var proposalsSelectId = 'botclaude-proposals-select';
       var proposalsButtonClass = 'botclaude-proposals-save';
+      var contractsSelectId = 'botclaude-contracts-select';
+      var contractsButtonClass = 'botclaude-contracts-save';
 
       // A faixa de cabeçalho (caption) é gerada pela própria Kommo — o
       // objeto `caption` não documenta uma opção de cor, então força por
@@ -218,10 +234,18 @@ define(['jquery'], function ($) {
       var headerHtml =
         '<div style="background:#2a78d6;color:#fff;font-weight:600;font-size:13px;padding:8px 10px;border-radius:6px 6px 0 0;margin:-10px -10px 10px -10px;">Registros</div>';
 
-      var contractsHtml = buildSectionHtml('Contratos', contractsSelectId, 'Selecione o produto', data.products, contractsButtonClass);
+      // Ordem segue o funil Serviço → Propostas Enviadas → Produtos (ver
+      // CLAUDE.md): Demandas Identificadas primeiro, Contratos por
+      // último. "Demandas Identificadas" é só o rótulo no widget — o
+      // campo na Kommo chama "Serviço" (mesmo campo usado no card do
+      // lead, ligado ao card "Serviço").
+      var demandsHtml = data.demandsRegisterUrl
+        ? buildSectionHtml('Demandas identificadas', demandsSelectId, 'Selecione o serviço', data.demandOptions, demandsButtonClass)
+        : '';
       var proposalsHtml = data.proposalsRegisterUrl
         ? buildSectionHtml('Propostas enviadas', proposalsSelectId, 'Selecione o serviço', data.proposalOptions, proposalsButtonClass)
         : '';
+      var contractsHtml = buildSectionHtml('Contratos', contractsSelectId, 'Selecione o produto', data.products, contractsButtonClass);
 
       self.render_template(
         {
@@ -231,17 +255,21 @@ define(['jquery'], function ($) {
             captionStyleHtml +
             '<div class="botclaude-contracts" style="padding:10px;background:#fff;border-radius:6px;">' +
             headerHtml +
-            contractsHtml +
+            demandsHtml +
             proposalsHtml +
+            contractsHtml +
             '</div>'
         },
         {}
       );
 
-      wireSection(contractsSelectId, contractsButtonClass, data.contractsRegisterUrl, data.secret, data.leadId, 'productId');
+      if (data.demandsRegisterUrl) {
+        wireSection(demandsSelectId, demandsButtonClass, data.demandsRegisterUrl, data.secret, data.leadId, 'optionId');
+      }
       if (data.proposalsRegisterUrl) {
         wireSection(proposalsSelectId, proposalsButtonClass, data.proposalsRegisterUrl, data.secret, data.leadId, 'optionId');
       }
+      wireSection(contractsSelectId, contractsButtonClass, data.contractsRegisterUrl, data.secret, data.leadId, 'productId');
     }
 
     return self;
