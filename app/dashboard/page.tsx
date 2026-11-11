@@ -1,5 +1,5 @@
 import { Filter, ListChecks, FileSignature, Trophy, Target, Percent } from "lucide-react";
-import { loadKommoDataset, loadProductLinkEvents, loadFunnelEvents, resolveLeadsByIds } from "@/lib/kommo/dataset";
+import { loadKommoDataset, loadAllNotes, loadFunnelEvents, resolveLeadsByIds } from "@/lib/kommo/dataset";
 import {
   buildStatusTypeMap,
   buildFunnel,
@@ -8,6 +8,8 @@ import {
   buildClosings,
   countLeadsReachingStatusInWindow,
 } from "@/lib/kommo/aggregate";
+import { extractRegistrations } from "@/lib/kommo/manual-registrations";
+import { CONTRACT_NOTE_PREFIX } from "@/lib/kommo/contracts-notes";
 import { resolveFunnelRange, toDateInputValue } from "@/lib/date-range";
 import { formatDecimal, formatNumber, formatPercent } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -29,9 +31,9 @@ export default async function DashboardOverviewPage({
   // dois). Pros eventos, uma janela concreta é necessária pra filtrar
   // localmente por timestamp; sem limite vira "desde sempre"/"até agora".
   const eventsWindow = { from: from ?? new Date(0), to: to ?? new Date() };
-  const [{ dataset, isDemo, error }, productLinkEventsResult, statusChangeEventsResult] = await Promise.all([
+  const [{ dataset, isDemo, error }, notesResult, statusChangeEventsResult] = await Promise.all([
     loadKommoDataset({ createdFrom: from, createdTo: to }),
-    loadProductLinkEvents(eventsWindow),
+    loadAllNotes(),
     loadFunnelEvents(eventsWindow.from, eventsWindow.to),
   ]);
   const { leads, pipelines, users, tasks, catalogElements, account } = dataset;
@@ -54,9 +56,10 @@ export default async function DashboardOverviewPage({
   // aconteceram em algum momento — um lead marcado "perdido" por engano e
   // corrigido depois não deveria contar como perdido; caso real encontrado
   // na conta, ver countLeadsReachingStatusInWindow).
+  const contractRegistrations = extractRegistrations(notesResult.notes, CONTRACT_NOTE_PREFIX);
   const leadById = await resolveLeadsByIds(leads, [
     ...statusChangeEventsResult.events.map((e) => e.leadId),
-    ...productLinkEventsResult.events.map((e) => e.leadId),
+    ...contractRegistrations.map((r) => r.leadId),
   ]);
   const wonCount = countLeadsReachingStatusInWindow(
     statusChangeEventsResult.events,
@@ -65,14 +68,7 @@ export default async function DashboardOverviewPage({
     eventsWindow,
     "won"
   );
-  const contractCount = buildClosings(
-    leads,
-    catalogElements,
-    productLinkEventsResult.events,
-    productLinkEventsResult.unlinkEvents,
-    eventsWindow,
-    leadById
-  ).totalClosings;
+  const contractCount = buildClosings(catalogElements, contractRegistrations, eventsWindow, leadById).totalClosings;
   const overview = buildOverviewSummary(leads.length, wonCount, contractCount);
   const activities = buildActivitySummary(tasks, users);
   const totalOverdue = activities.reduce((sum, a) => sum + a.overdue, 0);

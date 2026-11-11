@@ -1,6 +1,7 @@
 import { isKommoConfigured } from "./config";
 import {
   getAccount,
+  getAllNotes,
   getCatalogElements,
   getCatalogs,
   getCustomFields,
@@ -9,19 +10,11 @@ import {
   getLeadsByIds,
   getLossReasons,
   getPipelines,
-  getProductLinkEvents,
   getTasks,
   getUsers,
 } from "./api";
-import { getMockDataset, getMockLossReasons, getMockProductLinkEvents, getMockProductUnlinkEvents, getMockStatusChangeEvents } from "./mock-data";
-import type {
-  KommoDataset,
-  KommoLead,
-  KommoLossReason,
-  KommoProductLinkEvent,
-  KommoProductUnlinkEvent,
-  KommoStatusChangeEvent,
-} from "./types";
+import { getMockDataset, getMockLossReasons, getMockNotes, getMockStatusChangeEvents } from "./mock-data";
+import type { KommoDataset, KommoLead, KommoLossReason, KommoNote, KommoStatusChangeEvent } from "./types";
 import { KommoApiError } from "./client";
 
 export interface DatasetResult {
@@ -121,53 +114,6 @@ async function fetchDataset(opts: DatasetOpts): Promise<DatasetResult> {
   }
 }
 
-export interface ProductLinkEventsResult {
-  events: KommoProductLinkEvent[];
-  /** Desvínculos no mesmo período — só usados pra filtrar clique errado (ver buildClosings). */
-  unlinkEvents: KommoProductUnlinkEvent[];
-  isDemo: boolean;
-  error: string | null;
-}
-
-// Cache separado (não faz parte do dataset principal): só a página Contratos
-// precisa desses eventos, então mantê-los à parte evita buscar `/events` toda
-// vez que qualquer outra página do dashboard carrega.
-const eventsCache = new Map<string, { promise: Promise<ProductLinkEventsResult>; expiresAt: number }>();
-
-export function loadProductLinkEvents(window: { from: Date; to: Date }): Promise<ProductLinkEventsResult> {
-  if (!isKommoConfigured()) {
-    return Promise.resolve({
-      events: getMockProductLinkEvents(),
-      unlinkEvents: getMockProductUnlinkEvents(),
-      isDemo: true,
-      error: null,
-    });
-  }
-
-  const key = `${dateKey(window.from)}_${dateKey(window.to)}`;
-  const cached = eventsCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.promise;
-  }
-
-  const promise = fetchProductLinkEvents(window);
-  eventsCache.set(key, { promise, expiresAt: Date.now() + CACHE_TTL_MS });
-  return promise;
-}
-
-async function fetchProductLinkEvents(window: { from: Date; to: Date }): Promise<ProductLinkEventsResult> {
-  try {
-    const { linked, unlinked } = await getProductLinkEvents({ from: window.from, to: window.to });
-    return { events: linked, unlinkEvents: unlinked, isDemo: false, error: null };
-  } catch (err) {
-    const message =
-      err instanceof KommoApiError
-        ? err.message
-        : "Não foi possível conectar à API da Kommo. Verifique sua conexão e tente novamente.";
-    return { events: getMockProductLinkEvents(), unlinkEvents: getMockProductUnlinkEvents(), isDemo: true, error: message };
-  }
-}
-
 /**
  * Um evento (vínculo de produto, mudança de etapa) pode referenciar um lead
  * criado fora da janela de datas usada para buscar `leads` (ex.: lead antigo
@@ -192,16 +138,6 @@ export async function resolveLeadsByIds(baseLeads: KommoLead[], ids: number[]): 
   return byId;
 }
 
-export async function resolveLeadNames(
-  leads: KommoLead[],
-  events: KommoProductLinkEvent[]
-): Promise<Map<number, string>> {
-  const byId = await resolveLeadsByIds(leads, events.map((e) => e.leadId));
-  const nameById = new Map<number, string>();
-  for (const [id, lead] of byId) nameById.set(id, lead.name);
-  return nameById;
-}
-
 export interface LossReasonsResult {
   lossReasons: KommoLossReason[];
   isDemo: boolean;
@@ -223,6 +159,45 @@ export function loadLossReasons(): Promise<LossReasonsResult> {
   const promise = fetchLossReasons();
   lossReasonsCache = { promise, expiresAt: Date.now() + CACHE_TTL_MS };
   return promise;
+}
+
+export interface NotesResult {
+  notes: KommoNote[];
+  isDemo: boolean;
+  error: string | null;
+}
+
+// Todas as notas da conta (ver lib/kommo/manual-registrations.ts) — cache
+// único, sem variação por filtro: `/leads/notes` não filtra por data de
+// verdade (confirmado contra a conta real), então sempre busca tudo e
+// quem usa filtra localmente por janela de tempo.
+let notesCache: { promise: Promise<NotesResult>; expiresAt: number } | null = null;
+
+export function loadAllNotes(): Promise<NotesResult> {
+  if (!isKommoConfigured()) {
+    return Promise.resolve({ notes: getMockNotes(), isDemo: true, error: null });
+  }
+
+  if (notesCache && notesCache.expiresAt > Date.now()) {
+    return notesCache.promise;
+  }
+
+  const promise = fetchAllNotes();
+  notesCache = { promise, expiresAt: Date.now() + CACHE_TTL_MS };
+  return promise;
+}
+
+async function fetchAllNotes(): Promise<NotesResult> {
+  try {
+    const notes = await getAllNotes();
+    return { notes, isDemo: false, error: null };
+  } catch (err) {
+    const message =
+      err instanceof KommoApiError
+        ? err.message
+        : "Não foi possível conectar à API da Kommo. Verifique sua conexão e tente novamente.";
+    return { notes: getMockNotes(), isDemo: true, error: message };
+  }
 }
 
 async function fetchLossReasons(): Promise<LossReasonsResult> {

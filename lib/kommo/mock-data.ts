@@ -7,9 +7,8 @@ import type {
   KommoDataset,
   KommoLead,
   KommoLossReason,
+  KommoNote,
   KommoPipeline,
-  KommoProductLinkEvent,
-  KommoProductUnlinkEvent,
   KommoStatusChangeEvent,
   KommoTask,
   KommoUser,
@@ -284,27 +283,38 @@ function buildTasks(): KommoTask[] {
   return tasks;
 }
 
-/**
- * Simula eventos de vínculo lead↔produto ("fechamentos"). ~25% dos vínculos
- * ficam sem evento de propósito, para exercitar o fallback pela data de
- * criação do lead (mesmo caminho usado quando a Kommo não tem o evento).
- */
-function buildProductLinkEvents(leads: KommoLead[]): KommoProductLinkEvent[] {
+// Notas de registro manual (Demandas/Propostas/Contratos) — espelha os
+// prefixos reais de lib/kommo/{demands,proposals,contracts}-notes.ts, pra
+// que o modo demo exercite o mesmo caminho de leitura usado com a conta
+// real. ~25% dos produtos vinculados ficam sem nota de contrato
+// correspondente, pra exercitar o caso de um produto no catálogo sem
+// nenhum registro (ex.: importado antes do widget existir).
+function buildMockNotes(leads: KommoLead[]): KommoNote[] {
   const now = Math.floor(Date.now() / 1000);
-  const events: KommoProductLinkEvent[] = [];
+  let nextId = 900000;
+  const notes: KommoNote[] = [];
+
+  function addNote(leadId: number, text: string, createdAt: number) {
+    notes.push({ id: nextId++, entity_id: leadId, note_type: "common", created_at: createdAt, params: { text } });
+  }
+
   for (const lead of leads) {
+    const daysSinceCreated = Math.max(0, Math.floor((now - lead.created_at) / 86400));
+    const offsetAt = () => lead.created_at + Math.floor(rand() * Math.min(4, daysSinceCreated + 1)) * 86400;
+
+    const servico = lead.custom_fields_values?.find((v) => v.field_id === SERVICO_FIELD_ID);
+    for (const v of servico?.values ?? []) addNote(lead.id, `[Demanda identificada] ${v.value}`, offsetAt());
+
+    const propostas = lead.custom_fields_values?.find((v) => v.field_id === PROPOSTAS_FIELD_ID);
+    for (const v of propostas?.values ?? []) addNote(lead.id, `[Proposta enviada] ${v.value}`, offsetAt());
+
     for (const productId of lead.catalog_element_ids) {
-      if (rand() < 0.25) continue; // sem evento de propósito
-      const daysSinceCreated = Math.max(0, Math.floor((now - lead.created_at) / 86400));
-      const offsetDays = Math.floor(rand() * Math.min(4, daysSinceCreated + 1));
-      events.push({
-        leadId: lead.id,
-        catalogElementId: productId,
-        linkedAt: lead.created_at + offsetDays * 86400,
-      });
+      if (rand() < 0.25) continue; // sem nota de contrato correspondente
+      const product = MOCK_CATALOG_ELEMENTS.find((e) => e.id === productId);
+      if (product) addNote(lead.id, `[Contrato registrado] ${product.name}`, offsetAt());
     }
   }
-  return events;
+  return notes;
 }
 
 const MOCK_CUSTOM_FIELDS: KommoCustomField[] = [
@@ -386,8 +396,8 @@ const MOCK_ACCOUNT: KommoAccount = {
 // entre `getMockDataset()` e `getMockProductLinkEvents()`.
 const MOCK_LEADS = buildLeads();
 const MOCK_TASKS = buildTasks();
-const MOCK_PRODUCT_LINK_EVENTS = buildProductLinkEvents(MOCK_LEADS);
 const MOCK_STATUS_CHANGE_EVENTS = buildStatusChangeEvents(MOCK_LEADS);
+const MOCK_NOTES = buildMockNotes(MOCK_LEADS);
 
 export function getMockDataset(): KommoDataset {
   return {
@@ -402,13 +412,8 @@ export function getMockDataset(): KommoDataset {
   };
 }
 
-export function getMockProductLinkEvents(): KommoProductLinkEvent[] {
-  return MOCK_PRODUCT_LINK_EVENTS;
-}
-
-// Modo demo não simula clique errado (não há nada a filtrar) — lista vazia.
-export function getMockProductUnlinkEvents(): KommoProductUnlinkEvent[] {
-  return [];
+export function getMockNotes(): KommoNote[] {
+  return MOCK_NOTES;
 }
 
 export function getMockStatusChangeEvents(): KommoStatusChangeEvent[] {

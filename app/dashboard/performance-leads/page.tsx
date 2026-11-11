@@ -1,5 +1,9 @@
-import { loadKommoDataset } from "@/lib/kommo/dataset";
+import { loadKommoDataset, loadAllNotes } from "@/lib/kommo/dataset";
 import { buildLeadPerformanceFunnel } from "@/lib/kommo/aggregate";
+import { extractRegistrations } from "@/lib/kommo/manual-registrations";
+import { DEMAND_NOTE_PREFIX } from "@/lib/kommo/demands-notes";
+import { PROPOSAL_NOTE_PREFIX } from "@/lib/kommo/proposals-notes";
+import { CONTRACT_NOTE_PREFIX } from "@/lib/kommo/contracts-notes";
 import { resolveClosingsWindow, toDateInputValue } from "@/lib/date-range";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -19,15 +23,25 @@ export default async function PerformanceLeadsPage({
   const { period, from: fromParam, to: toParam, pipeline: pipelineParam } = await searchParams;
   const window = resolveClosingsWindow({ period, from: fromParam, to: toParam });
 
-  const { dataset, isDemo, error } = await loadKommoDataset({ createdFrom: window.from, createdTo: window.to });
-  const { leads, customFields, pipelines } = dataset;
+  const [{ dataset, isDemo: datasetIsDemo, error: datasetError }, notesResult] = await Promise.all([
+    loadKommoDataset({ createdFrom: window.from, createdTo: window.to }),
+    loadAllNotes(),
+  ]);
+  const { leads, pipelines } = dataset;
+  const isDemo = datasetIsDemo || notesResult.isDemo;
+  const error = datasetError ?? notesResult.error;
 
   const selectedPipelineId = pipelineParam ? Number(pipelineParam) : null;
   const leadsInPipeline = selectedPipelineId
     ? leads.filter((l) => l.pipeline_id === selectedPipelineId)
     : leads;
 
-  const funnel = buildLeadPerformanceFunnel(leadsInPipeline, customFields, window);
+  const registrations = {
+    demand: extractRegistrations(notesResult.notes, DEMAND_NOTE_PREFIX),
+    proposal: extractRegistrations(notesResult.notes, PROPOSAL_NOTE_PREFIX),
+    contract: extractRegistrations(notesResult.notes, CONTRACT_NOTE_PREFIX),
+  };
+  const funnel = buildLeadPerformanceFunnel(leadsInPipeline, registrations, window);
 
   return (
     <div>

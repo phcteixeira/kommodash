@@ -1,5 +1,7 @@
-import { loadKommoDataset, loadProductLinkEvents, resolveLeadsByIds } from "@/lib/kommo/dataset";
+import { loadKommoDataset, loadAllNotes, resolveLeadsByIds } from "@/lib/kommo/dataset";
 import { buildClosings } from "@/lib/kommo/aggregate";
+import { extractRegistrations } from "@/lib/kommo/manual-registrations";
+import { CONTRACT_NOTE_PREFIX } from "@/lib/kommo/contracts-notes";
 import { resolveClosingsWindow, toDateInputValue } from "@/lib/date-range";
 import { formatDate, formatNumber } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -7,7 +9,7 @@ import { ContratosFilterBar } from "@/components/filters/ContratosFilterBar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { Table } from "@/components/ui/Table";
-import { FileSignature, Package, TrendingUp, Clock3 } from "lucide-react";
+import { FileSignature, Package, TrendingUp } from "lucide-react";
 
 export default async function ContratosPage({
   searchParams,
@@ -17,27 +19,27 @@ export default async function ContratosPage({
   const { period, from: fromParam, to: toParam, product: productParam } = await searchParams;
   const window = resolveClosingsWindow({ period, from: fromParam, to: toParam });
 
-  const [{ dataset, isDemo: datasetIsDemo, error: datasetError }, eventsResult] = await Promise.all([
+  const [{ dataset, isDemo: datasetIsDemo, error: datasetError }, notesResult] = await Promise.all([
     loadKommoDataset({ createdFrom: window.from, createdTo: window.to }),
-    loadProductLinkEvents({ from: window.from, to: window.to }),
+    loadAllNotes(),
   ]);
   const { leads, catalogElements } = dataset;
 
-  const isDemo = datasetIsDemo || eventsResult.isDemo;
-  const error = datasetError ?? eventsResult.error;
+  const isDemo = datasetIsDemo || notesResult.isDemo;
+  const error = datasetError ?? notesResult.error;
 
+  const registrations = extractRegistrations(notesResult.notes, CONTRACT_NOTE_PREFIX);
   const leadById = await resolveLeadsByIds(
     leads,
-    eventsResult.events.map((e) => e.leadId)
+    registrations.map((r) => r.leadId)
   );
-  const fullReport = buildClosings(leads, catalogElements, eventsResult.events, eventsResult.unlinkEvents, window, leadById);
+  const fullReport = buildClosings(catalogElements, registrations, window, leadById);
 
   const selectedProductId = productParam ? Number(productParam) : null;
   const rows = selectedProductId
     ? fullReport.rows.filter((r) => r.productId === selectedProductId)
     : fullReport.rows;
   const totalClosings = rows.length;
-  const approximateCount = rows.filter((r) => r.isApproximate).length;
   const productSummary = selectedProductId
     ? fullReport.productSummary.filter((p) => p.productId === selectedProductId)
     : fullReport.productSummary;
@@ -51,12 +53,12 @@ export default async function ContratosPage({
     <div>
       <PageHeader
         title="Contratos"
-        description="Produtos vinculados a leads ('fechamentos') no período selecionado, pela data em que o vínculo aconteceu."
+        description="Produtos contratados por leads ('fechamentos') no período selecionado, pela data em que foram registrados."
       />
 
       {isDemo ? <div className="mb-6"><EmptyState variant={error ? "error" : "not-configured"} message={error} /></div> : null}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <KpiCard label="Fechamentos no período" value={formatNumber(totalClosings)} icon={FileSignature} />
         <KpiCard label="Produtos distintos" value={formatNumber(productSummary.length)} icon={Package} />
         <KpiCard
@@ -64,12 +66,6 @@ export default async function ContratosPage({
           value={topProduct ? topProduct.productName : "—"}
           icon={TrendingUp}
           hint={topProduct ? `${formatNumber(topProduct.count)} fechamentos` : undefined}
-        />
-        <KpiCard
-          label="Datas aproximadas"
-          value={formatNumber(approximateCount)}
-          icon={Clock3}
-          hint="Sem evento de vínculo — usamos a data de criação do lead"
         />
       </div>
 
@@ -93,22 +89,11 @@ export default async function ContratosPage({
             { header: "Produto", cell: (r) => r.productName },
             {
               header: "Data da contratação",
-              cell: (r) => (
-                <span>
-                  {formatDate(r.closedAt)}
-                  {r.isApproximate ? <span className="ml-1 text-[var(--muted)]">(aprox.)</span> : null}
-                </span>
-              ),
+              cell: (r) => formatDate(r.closedAt),
               align: "right",
             },
           ]}
         />
-        {approximateCount > 0 ? (
-          <p className="mt-3 text-xs text-[var(--muted)]">
-            (aprox.): sem evento de vínculo registrado na Kommo — a data de criação do lead foi usada como
-            aproximação.
-          </p>
-        ) : null}
       </div>
     </div>
   );

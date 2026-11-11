@@ -9,8 +9,6 @@ import type {
   KommoNote,
   KommoPipeline,
   KommoPipelineStatus,
-  KommoProductLinkEvent,
-  KommoProductUnlinkEvent,
   KommoStatusChangeEvent,
   KommoTask,
   KommoUser,
@@ -191,64 +189,6 @@ export interface EventDateFilter {
   to?: Date;
 }
 
-interface RawEvent {
-  id: string;
-  entity_id: number;
-  created_at: number;
-  value_after?: { link?: { entity?: { type: unknown; id: number } } }[];
-  value_before?: { link?: { entity?: { type: unknown; id: number } } }[];
-}
-
-export interface ProductLinkEventsBundle {
-  linked: KommoProductLinkEvent[];
-  unlinked: KommoProductUnlinkEvent[];
-}
-
-/**
- * Busca eventos `entity_linked`/`entity_unlinked` de leads (vínculo com
- * produto, contato ou empresa) e retorna apenas os que representam um
- * produto sendo vinculado/desvinculado de um lead. Os desvínculos são
- * usados só pra identificar um vínculo desfeito poucos segundos depois de
- * criado (clique errado) — ver `buildClosings` em aggregate.ts.
- *
- * A API da Kommo não expõe um tipo de evento dedicado a "produto vinculado":
- * vínculos de contato/empresa trazem `link.entity.type` como texto (ex.:
- * "contact"), enquanto vínculos de produto trazem `type: false` — uma
- * peculiaridade não documentada, confirmada manualmente contra uma conta
- * real. Por isso `aggregate.ts` ainda cruza o resultado com a lista de
- * elementos de catálogo conhecidos antes de contabilizar.
- */
-export async function getProductLinkEvents(filter: EventDateFilter = {}): Promise<ProductLinkEventsBundle> {
-  const params = new URLSearchParams();
-  params.append("filter[type][]", "entity_linked");
-  params.append("filter[type][]", "entity_unlinked");
-  params.set("filter[entity]", "leads");
-  if (filter.from) {
-    params.set("filter[created_at][from]", String(Math.floor(filter.from.getTime() / 1000)));
-  }
-  if (filter.to) {
-    params.set("filter[created_at][to]", String(Math.floor(filter.to.getTime() / 1000)));
-  }
-  const path = `/events?${params.toString()}`;
-
-  const raw = await kommoFetchAllPages<"events", RawEvent>(path, "events");
-
-  const linked: KommoProductLinkEvent[] = [];
-  const unlinked: KommoProductUnlinkEvent[] = [];
-  for (const event of raw) {
-    const linkedEntity = event.value_after?.[0]?.link?.entity;
-    if (linkedEntity && linkedEntity.type === false) {
-      linked.push({ leadId: event.entity_id, catalogElementId: linkedEntity.id, linkedAt: event.created_at });
-      continue;
-    }
-    const unlinkedEntity = event.value_before?.[0]?.link?.entity;
-    if (unlinkedEntity && unlinkedEntity.type === false) {
-      unlinked.push({ leadId: event.entity_id, catalogElementId: unlinkedEntity.id, unlinkedAt: event.created_at });
-    }
-  }
-  return { linked, unlinked };
-}
-
 interface RawStatusChangeEvent {
   entity_id: number;
   created_at: number;
@@ -311,4 +251,17 @@ export async function addLeadNote(leadId: number, text: string): Promise<void> {
     method: "POST",
     body: JSON.stringify([{ entity_id: leadId, note_type: "common", params: { text } }]),
   });
+}
+
+/**
+ * Todas as notas da conta (não só de um lead) — usada pra ler os
+ * registros manuais de Demandas/Propostas/Contratos (ver
+ * lib/kommo/manual-registrations.ts). `/leads/notes` não filtra por data
+ * de verdade (confirmado contra a conta real: o parâmetro é ignorado),
+ * então sempre busca tudo — viável porque o volume total de notas da
+ * conta é baixo (~1.600; mensagens de WhatsApp não entram aqui, ficam
+ * num sistema separado sem acesso nosso).
+ */
+export async function getAllNotes(): Promise<KommoNote[]> {
+  return kommoFetchAllPages<"notes", KommoNote>("/leads/notes", "notes");
 }

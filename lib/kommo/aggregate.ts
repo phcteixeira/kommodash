@@ -5,13 +5,12 @@ import type {
   KommoLossReason,
   KommoPipeline,
   KommoPipelineStatus,
-  KommoProductLinkEvent,
-  KommoProductUnlinkEvent,
   KommoStatusChangeEvent,
   KommoTask,
   KommoUser,
   PipelineStatusType,
 } from "./types";
+import type { ManualRegistration } from "./manual-registrations";
 
 export function buildStatusTypeMap(pipelines: KommoPipeline[]): Map<number, PipelineStatusType> {
   const map = new Map<number, PipelineStatusType>();
@@ -193,10 +192,8 @@ export interface ClosingListRow {
   leadName: string;
   productId: number;
   productName: string;
-  /** Data do vínculo (evento real) ou, na ausência de evento, a criação do lead. */
+  /** created_at da nota `[Contrato registrado]` — data/hora exata do clique. */
   closedAt: number; // unix seconds
-  /** true quando não foi encontrado evento de vínculo e a data é uma aproximação. */
-  isApproximate: boolean;
 }
 
 export interface ClosingsProductSummary {
@@ -209,110 +206,52 @@ export interface ClosingsReport {
   /** Um fechamento por linha (lead + produto + data), do mais recente para o mais antigo. */
   rows: ClosingListRow[];
   totalClosings: number;
-  /** Quantos fechamentos usaram a data de criação do lead como aproximação (sem evento de vínculo encontrado). */
-  approximateCount: number;
   /** Ranking por produto, derivado de `rows` — usado nos KPIs (produto mais vendido, produtos distintos). */
   productSummary: ClosingsProductSummary[];
 }
 
-// Um vínculo desfeito até esse intervalo depois de criado é tratado como
-// clique errado corrigido na hora, não uma venda — ver `wasQuicklyUndone`.
-const MISCLICK_WINDOW_SECONDS = 5;
-
 /**
- * Lista "fechamentos" (produto vinculado a um lead) dentro de uma janela de
- * tempo. Fonte primária: eventos `entity_linked` (data exata do vínculo) —
- * mas só conta se o produto ainda estiver vinculado ao lead HOJE
- * (`lead.catalog_element_ids`). Sem essa checagem, um produto marcado por
- * engano e desvinculado depois continuava aparecendo pra sempre — o evento
- * de vínculo é permanente no histórico da Kommo, mesmo depois de desfeito
- * (bug relatado por usuário). Para leads com produto vinculado mas sem
- * evento correspondente encontrado (dado antigo/importado, fora do alcance
- * do log de eventos), usa a data de criação do lead como aproximação —
- * sinalizado em `isApproximate`; esse caminho já é auto-corrigido, porque
- * itera `catalog_element_ids` (estado atual), não um evento.
+ * Lista "fechamentos" (produto contratado por um lead) dentro de uma janela
+ * de tempo. Fonte: notas `[Contrato registrado] <produto>` escritas pelo
+ * widget da Kommo a cada clique em "Registrar" no card do lead (ver
+ * `lib/kommo/contracts-notes.ts`) — um registro manual, append-only, com a
+ * data/hora exata do clique gravada pela própria Kommo como `created_at` da
+ * nota. Cada clique gera uma linha própria: um mesmo par (lead, produto)
+ * pode aparecer mais de uma vez (ex.: cliente contratou o mesmo serviço de
+ * novo semanas depois) e a soma continua certa, diferente do vínculo nativo
+ * de "Produtos" (`catalog_element_ids`), que só marca presença, não conta
+ * repetição.
  *
- * Cada evento de vínculo válido gera uma linha própria — um mesmo par
- * (lead, produto) pode aparecer mais de uma vez (ex.: cliente contratou o
- * mesmo serviço de novo semanas depois, via desvincular/revincular). A
- * aproximação por `created_at` só é usada pra um par que não tenha NENHUM
- * evento de vínculo válido na janela.
+ * `registrations` já vem filtrado pelo prefixo de Contratos (ver
+ * `extractRegistrations` em manual-registrations.ts). Um registro cujo
+ * texto não corresponde a nenhum produto do catálogo atual (produto
+ * renomeado/removido depois do registro) é descartado.
  *
- * Um vínculo desfeito em até `MISCLICK_WINDOW_SECONDS` depois de criado
- * (`unlinkEvents`) é ignorado — tratado como clique errado desfeito na
- * hora, não uma venda real. Pedido explícito da usuária após constatarmos,
- * numa varredura da conta real, que a maioria dos vínculos repetidos pro
- * mesmo par é separada por dias/semanas (venda nova de fato) e só uma
- * minoria por segundos (clique errado).
- *
- * `leadById` deve cobrir tanto os leads de `leads` quanto qualquer lead
- * referenciado só pelos eventos (ex.: lead antigo, criado fora da janela,
- * que recebeu um produto novo agora) — ver `dataset.ts#resolveLeadsByIds`.
- * Lead ausente do mapa (falha ao resolver) é tratado como "não confirmado"
- * e o evento é ignorado — prefere sub-contar num caso raro de falha de API
- * a super-contar um vínculo já desfeito, que era o problema original.
+ * `leadById` deve cobrir todo lead referenciado pelos registros, não só os
+ * de `leads` (dataset da janela de criação) — ver `dataset.ts#resolveLeadsByIds`.
  */
 export function buildClosings(
-  leads: KommoLead[],
   catalogElements: KommoCatalogElement[],
-  events: KommoProductLinkEvent[],
-  unlinkEvents: KommoProductUnlinkEvent[],
+  registrations: ManualRegistration[],
   window: { from: Date; to: Date },
   leadById: Map<number, KommoLead>
 ): ClosingsReport {
-  const productNameById = new Map(catalogElements.map((e) => [e.id, e.name]));
-  const validProductIds = new Set(catalogElements.map((e) => e.id));
+  const productIdByName = new Map(catalogElements.map((e) => [e.name, e.id]));
   const fromSec = Math.floor(window.from.getTime() / 1000);
   const toSec = Math.floor(window.to.getTime() / 1000);
 
-  const unlinksByPair = new Map<string, number[]>(); // `${leadId}:${catalogElementId}` -> [unlinkedAt, ...]
-  for (const u of unlinkEvents) {
-    const key = `${u.leadId}:${u.catalogElementId}`;
-    const arr = unlinksByPair.get(key);
-    if (arr) arr.push(u.unlinkedAt);
-    else unlinksByPair.set(key, [u.unlinkedAt]);
-  }
-
-  function wasQuicklyUndone(leadId: number, productId: number, linkedAt: number): boolean {
-    const candidates = unlinksByPair.get(`${leadId}:${productId}`);
-    if (!candidates) return false;
-    return candidates.some(
-      (unlinkedAt) => unlinkedAt >= linkedAt && unlinkedAt - linkedAt <= MISCLICK_WINDOW_SECONDS
-    );
-  }
-
   const rows: ClosingListRow[] = [];
-  const pairsWithRealEvent = new Set<string>(); // `${leadId}:${catalogElementId}` já coberto por evento real
-  let approximateCount = 0;
-
-  function addRow(leadId: number, productId: number, closedAt: number, isApproximate: boolean) {
-    if (!validProductIds.has(productId)) return;
+  for (const reg of registrations) {
+    if (reg.at < fromSec || reg.at > toSec) continue;
+    const productId = productIdByName.get(reg.value);
+    if (productId === undefined) continue;
     rows.push({
-      leadId,
-      leadName: leadById.get(leadId)?.name ?? `Lead ${leadId}`,
+      leadId: reg.leadId,
+      leadName: leadById.get(reg.leadId)?.name ?? `Lead ${reg.leadId}`,
       productId,
-      productName: productNameById.get(productId) ?? `Produto ${productId}`,
-      closedAt,
-      isApproximate,
+      productName: reg.value,
+      closedAt: reg.at,
     });
-    if (isApproximate) approximateCount += 1;
-  }
-
-  for (const event of events) {
-    if (event.linkedAt < fromSec || event.linkedAt > toSec) continue;
-    const stillLinked = leadById.get(event.leadId)?.catalog_element_ids?.includes(event.catalogElementId) ?? false;
-    if (!stillLinked) continue; // vínculo desfeito depois (ou lead não resolvido) — não conta
-    if (wasQuicklyUndone(event.leadId, event.catalogElementId, event.linkedAt)) continue; // clique errado
-    addRow(event.leadId, event.catalogElementId, event.linkedAt, false);
-    pairsWithRealEvent.add(`${event.leadId}:${event.catalogElementId}`);
-  }
-
-  for (const lead of leads) {
-    if (lead.created_at < fromSec || lead.created_at > toSec) continue;
-    for (const productId of lead.catalog_element_ids ?? []) {
-      if (pairsWithRealEvent.has(`${lead.id}:${productId}`)) continue; // já contado por evento real
-      addRow(lead.id, productId, lead.created_at, true);
-    }
   }
 
   rows.sort((a, b) => b.closedAt - a.closedAt);
@@ -329,7 +268,7 @@ export function buildClosings(
   }
   const productSummary = Array.from(countByProduct.values()).sort((a, b) => b.count - a.count);
 
-  return { rows, totalClosings: rows.length, approximateCount, productSummary };
+  return { rows, totalClosings: rows.length, productSummary };
 }
 
 // ---------- Perdas (leads perdidos por motivo) ----------
@@ -464,44 +403,33 @@ export interface LeadFunnelReport {
   overallConversionRate: number;
 }
 
-function findLeadFieldId(customFields: KommoCustomField[], name: string): number | null {
-  const normalized = name.trim().toLowerCase();
-  return (
-    customFields.find((f) => f.entity_type === "leads" && f.name.trim().toLowerCase() === normalized)?.id ?? null
-  );
-}
-
-/** Quantas opções estão marcadas (checked) em um campo de múltipla escolha, para um lead. */
-function countCheckedValues(lead: KommoLead, fieldId: number | null): number {
-  if (fieldId === null) return 0;
-  const field = lead.custom_fields_values?.find((v) => v.field_id === fieldId);
-  return field?.values.length ?? 0;
-}
-
 /**
- * Levantamento de funil: Total de Leads Criados > Identificação de Demanda
- * (marcações no campo "Serviço") > Propostas Enviadas (marcações no campo
- * "Propostas Enviadas") > Contratos Efetivados (produtos vinculados). A partir
- * da 2ª etapa, a contagem é de itens marcados/vinculados — não de leads
- * distintos: um lead que marca 3 serviços contribui com 3 na etapa de demanda.
- * Janela de tempo baseada em `created_at` do lead (coorte de criação).
+ * Levantamento de funil: Total de Leads Criados > Demandas Identificadas >
+ * Propostas Enviadas > Contratos Efetivados. Fonte das 3 últimas etapas:
+ * notas de registro manual (`[Demanda identificada]`/`[Proposta enviada]`/
+ * `[Contrato registrado]`, ver `lib/kommo/manual-registrations.ts`) — não o
+ * estado atual dos campos nativos (`Serviço`/`Propostas Enviadas`/
+ * `catalog_element_ids`), porque esses só marcam presença, não repetição. A
+ * partir da 2ª etapa, a contagem é de registros — não de leads distintos:
+ * um lead com 3 demandas registradas contribui com 3 na etapa de demanda.
+ * Janela de tempo baseada em `created_at` do lead (coorte de criação): conta
+ * todo registro de um lead da coorte, independente da data do próprio
+ * registro.
  */
 export function buildLeadPerformanceFunnel(
   leads: KommoLead[],
-  customFields: KommoCustomField[],
+  registrations: { demand: ManualRegistration[]; proposal: ManualRegistration[]; contract: ManualRegistration[] },
   window: { from: Date; to: Date }
 ): LeadFunnelReport {
   const fromSec = Math.floor(window.from.getTime() / 1000);
   const toSec = Math.floor(window.to.getTime() / 1000);
   const leadsInWindow = leads.filter((l) => l.created_at >= fromSec && l.created_at <= toSec);
-
-  const servicoFieldId = findLeadFieldId(customFields, SERVICO_FIELD_NAME);
-  const propostasFieldId = findLeadFieldId(customFields, PROPOSTAS_ENVIADAS_FIELD_NAME);
+  const leadIdsInWindow = new Set(leadsInWindow.map((l) => l.id));
 
   const totalLeadsCreated = leadsInWindow.length;
-  const demandCount = leadsInWindow.reduce((sum, l) => sum + countCheckedValues(l, servicoFieldId), 0);
-  const proposalCount = leadsInWindow.reduce((sum, l) => sum + countCheckedValues(l, propostasFieldId), 0);
-  const contractCount = leadsInWindow.reduce((sum, l) => sum + (l.catalog_element_ids?.length ?? 0), 0);
+  const demandCount = registrations.demand.filter((r) => leadIdsInWindow.has(r.leadId)).length;
+  const proposalCount = registrations.proposal.filter((r) => leadIdsInWindow.has(r.leadId)).length;
+  const contractCount = registrations.contract.filter((r) => leadIdsInWindow.has(r.leadId)).length;
 
   const raw: { key: LeadFunnelStageKey; label: string; unitLabel: string; count: number }[] = [
     { key: "created", label: "Total de Leads Criados", unitLabel: "leads", count: totalLeadsCreated },
