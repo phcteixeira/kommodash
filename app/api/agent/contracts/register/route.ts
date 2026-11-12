@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isValidWidgetSecret } from "@/lib/kommo-agent/contractsWidgetConfig";
-import { getCatalogs, getCatalogElements } from "@/lib/kommo/api";
+import { getAllCatalogProducts } from "@/lib/kommo/api";
 import { registerContractNote } from "@/lib/kommo/contracts-notes";
 
 // Mesmo motivo do endpoint /products — chamado direto do navegador a
@@ -35,21 +35,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const catalogs = await getCatalogs();
-    let productName: string | null = null;
-    for (const catalog of catalogs) {
-      const elements = await getCatalogElements(catalog.id);
-      const match = elements.find((e) => e.id === productId);
-      if (match) {
-        productName = match.name;
-        break;
-      }
-    }
-    if (!productName) {
+    const products = await getAllCatalogProducts();
+    const product = products.find((p) => p.id === productId);
+    if (!product) {
       return NextResponse.json({ ok: false, message: "Produto não encontrado." }, { status: 400, headers: CORS_HEADERS });
     }
 
-    await registerContractNote(leadId, productName);
+    await registerContractNote(leadId, product.name);
     return NextResponse.json({ ok: true }, { headers: CORS_HEADERS });
   } catch (err) {
     console.error("[agent/contracts/register]", err);

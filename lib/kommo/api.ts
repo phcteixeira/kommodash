@@ -184,6 +184,24 @@ export async function getCatalogElements(catalogId: number): Promise<KommoCatalo
   return raw.map((e) => ({ ...e, catalog_id: catalogId }));
 }
 
+/**
+ * Todos os elementos de todos os catálogos (produtos/serviços) — fonte
+ * única das opções do widget pra Demandas Identificadas, Propostas
+ * Enviadas e Contratos (ver app/api/agent/{demands,proposals,contracts}).
+ * Os três campos nativos que antes serviam de fonte (Serviço, Propostas
+ * Enviadas) foram removidos da conta — o catálogo de produtos é a única
+ * lista de opções que sobrou.
+ */
+export async function getAllCatalogProducts(): Promise<{ id: number; name: string }[]> {
+  const catalogs = await getCatalogs();
+  const products: { id: number; name: string }[] = [];
+  for (const catalog of catalogs) {
+    const elements = await getCatalogElements(catalog.id);
+    for (const element of elements) products.push({ id: element.id, name: element.name });
+  }
+  return products;
+}
+
 export interface EventDateFilter {
   from?: Date;
   to?: Date;

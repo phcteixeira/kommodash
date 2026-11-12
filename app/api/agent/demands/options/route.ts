@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isValidWidgetSecret } from "@/lib/kommo-agent/contractsWidgetConfig";
-import { getCustomFields } from "@/lib/kommo/api";
-import { SERVICO_FIELD_NAME } from "@/lib/kommo/aggregate";
+import { getAllCatalogProducts } from "@/lib/kommo/api";
 
 // Mesmo motivo do /contracts/products e /proposals/options — chamado
 // direto do navegador a partir do domínio da Kommo.
 const CORS_HEADERS = { "Access-Control-Allow-Origin": "*" };
 
 /**
- * Lista as opções do campo "Serviço" (multiselect) pra popular o seletor
- * de "Demandas Identificadas" no widget — ver lib/kommo/demands-notes.ts.
+ * Lista as opções pra popular o seletor de "Demandas Identificadas" no
+ * widget — ver lib/kommo/demands-notes.ts. Fonte: catálogo de produtos,
+ * a mesma usada em /contracts/products (o campo nativo "Serviço", que
+ * antes era a fonte, foi removido da conta).
  */
 export async function GET(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get("secret");
@@ -18,12 +19,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const fields = await getCustomFields("leads");
-    const field = fields.find((f) => f.name.trim().toLowerCase() === SERVICO_FIELD_NAME.trim().toLowerCase());
-    const options = (field?.enums ?? [])
-      .slice()
-      .sort((a, b) => a.sort - b.sort)
-      .map((e) => ({ id: e.id, name: e.value }));
+    const options = (await getAllCatalogProducts()).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     return NextResponse.json({ ok: true, options }, { headers: CORS_HEADERS });
   } catch (err) {
     console.error("[agent/demands/options]", err);
