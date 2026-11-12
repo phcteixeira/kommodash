@@ -1,4 +1,5 @@
 import { kommoFetch, kommoFetchAllPages } from "./client";
+import { DISCONTINUED_PRODUCT_NAMES } from "./catalog-config";
 import type {
   KommoAccount,
   KommoCatalog,
@@ -221,7 +222,10 @@ export async function getAllCatalogProducts(): Promise<{ id: number; name: strin
   const products: { id: number; name: string }[] = [];
   for (const catalog of catalogs) {
     const elements = await getCatalogElements(catalog.id);
-    for (const element of elements) products.push({ id: element.id, name: element.name });
+    for (const element of elements) {
+      if (DISCONTINUED_PRODUCT_NAMES.has(element.name)) continue;
+      products.push({ id: element.id, name: element.name });
+    }
   }
   return products;
 }

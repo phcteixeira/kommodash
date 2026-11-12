@@ -2,6 +2,7 @@ import { loadKommoDataset, loadAllNotes, resolveLeadsByIds } from "@/lib/kommo/d
 import { buildClosings } from "@/lib/kommo/aggregate";
 import { extractRegistrations } from "@/lib/kommo/manual-registrations";
 import { CONTRACT_NOTE_PREFIX } from "@/lib/kommo/contracts-notes";
+import { DISCONTINUED_PRODUCT_NAMES } from "@/lib/kommo/catalog-config";
 import { resolveClosingsWindow, toDateInputValue } from "@/lib/date-range";
 import { formatDate, formatNumber } from "@/lib/format";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -45,7 +46,8 @@ export default async function ContratosPage({
     : fullReport.productSummary;
   const topProduct = productSummary[0];
 
-  const productOptions = [...catalogElements]
+  const productOptions = catalogElements
+    .filter((e) => !DISCONTINUED_PRODUCT_NAMES.has(e.name))
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
     .map((e) => ({ id: e.id, name: e.name }));
 
