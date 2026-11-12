@@ -184,6 +184,30 @@ export async function getCatalogElements(catalogId: number): Promise<KommoCatalo
   return raw.map((e) => ({ ...e, catalog_id: catalogId }));
 }
 
+/** Cria elementos no catálogo (lote). Usado só pela manutenção administrativa
+ * da lista de produtos — ver app/api/admin/catalog. */
+export async function createCatalogElements(catalogId: number, names: string[]): Promise<KommoCatalogElement[]> {
+  if (names.length === 0) return [];
+  const body = await kommoFetch<{ _embedded?: { elements?: Omit<KommoCatalogElement, "catalog_id">[] } }>(
+    `/catalogs/${catalogId}/elements`,
+    { method: "POST", body: JSON.stringify(names.map((name) => ({ name }))) }
+  );
+  return (body._embedded?.elements ?? []).map((e) => ({ ...e, catalog_id: catalogId }));
+}
+
+/** Renomeia elementos existentes do catálogo (lote, por id). A API da Kommo
+ * não suporta excluir um elemento de catálogo — só renomear/criar. */
+export async function renameCatalogElements(
+  catalogId: number,
+  renames: { id: number; name: string }[]
+): Promise<void> {
+  if (renames.length === 0) return;
+  await kommoFetch(`/catalogs/${catalogId}/elements`, {
+    method: "PATCH",
+    body: JSON.stringify(renames),
+  });
+}
+
 /**
  * Todos os elementos de todos os catálogos (produtos/serviços) — fonte
  * única das opções do widget pra Demandas Identificadas, Propostas
